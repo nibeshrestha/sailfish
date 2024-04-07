@@ -1,5 +1,5 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::messages::{Certificate, Header};
+use crate::messages::{Certificate, Header, Timeout, TimeoutCert};
 use crate::primary::Round;
 use config::{Committee, WorkerId};
 use crypto::Hash as _;
@@ -34,6 +34,10 @@ pub struct Proposer {
     rx_workers: Receiver<(Digest, WorkerId)>,
     /// Sends newly created headers to the `Core`.
     tx_core: Sender<Header>,
+    /// Sends newly created headers to the `Core`.
+    tx_core_timeout: Sender<Timeout>,
+    /// Sends newly created headers to the `Core`.
+    rx_timeout_cert: Receiver<(TimeoutCert, Round)>,
 
     /// The current round of the dag.
     round: Round,
@@ -45,6 +49,8 @@ pub struct Proposer {
     digests: Vec<(Digest, WorkerId)>,
     /// Keeps track of the size (in bytes) of batches' digests that we received so far.
     payload_size: usize,
+    /// Holds the Timeout certificate for the latest round.
+    last_timeout_cert: TimeoutCert,
 }
 
 impl Proposer {
@@ -58,6 +64,8 @@ impl Proposer {
         rx_core: Receiver<(Vec<Certificate>, Round)>,
         rx_workers: Receiver<(Digest, WorkerId)>,
         tx_core: Sender<Header>,
+        tx_core_timeout: Sender<Timeout>,
+        rx_timeout_cert: Receiver<(TimeoutCert, Round)>,
     ) {
         let genesis = Certificate::genesis(&committee);
         tokio::spawn(async move {
@@ -70,15 +78,34 @@ impl Proposer {
                 rx_core,
                 rx_workers,
                 tx_core,
+                tx_core_timeout,
+                rx_timeout_cert,
                 round: 0,
                 last_parents: genesis,
                 last_leader: None,
                 digests: Vec::with_capacity(2 * header_size),
                 payload_size: 0,
+                last_timeout_cert: TimeoutCert:: new(0),
             }
             .run()
             .await;
         });
+    }
+
+    async fn make_timeout_msg(&mut self) {
+        let timeout_cert_msg = Timeout::new(
+            self.round,
+            self.name,
+            &mut self.signature_service,
+        ).await;
+
+        debug!("Created {:?}", timeout_cert_msg);
+
+        // Send the new timeout to the `Core` that will broadcast and process it.
+        self.tx_core_timeout
+            .send(timeout_cert_msg)
+            .await
+            .expect("Failed to send timeout");
     }
 
     async fn make_header(&mut self) {
@@ -170,13 +197,17 @@ impl Proposer {
             // (ii) we have enough digests (minimum header size) and we are on the happy path (we can vote for
             // the leader or the leader has enough votes to enable a commit).
             let enough_parents = !self.last_parents.is_empty();
+            let timeout_cert_gathered = !self.last_timeout_cert.round == self.round;
             let enough_digests = self.payload_size >= self.header_size;
             let timer_expired = timer.is_elapsed();
 
-            if (timer_expired || (enough_digests && advance)) && enough_parents {
-                if timer_expired {
-                    warn!("Timer expired for round {}", self.round);
-                }
+            // TODO: This has to be fixed by sending timeout only once.
+            if timer_expired {
+                warn!("Timer expired for round {}", self.round);
+                self.make_timeout_msg().await;
+            }
+
+            if ((timer_expired && timeout_cert_gathered) || (enough_digests && advance)) && enough_parents {
 
                 // Advance to the next round.
                 self.round += 1;
@@ -221,6 +252,25 @@ impl Proposer {
                 Some((digest, worker_id)) = self.rx_workers.recv() => {
                     self.payload_size += digest.size();
                     self.digests.push((digest, worker_id));
+                }
+                Some((timeout_cert, round)) = self.rx_timeout_cert.recv() => {
+                    match round.cmp(&self.round) {
+                        Ordering::Greater => {
+                            // We accept round bigger than our current round to jump ahead in case we were
+                            // late (or just joined the network).
+                            self.round = round;
+                            self.last_timeout_cert = timeout_cert;
+
+                            // TODO: How do we react?
+                        },
+                        Ordering::Less => {
+                            // Ignore parents from older rounds.
+                        },
+                        Ordering::Equal => {
+                            // TODO: Here we have to create header and include the timeout certificate in the header?
+                            self.last_timeout_cert = timeout_cert;
+                        }
+                    }
                 }
                 () = &mut timer => {
                     // Nothing to do.

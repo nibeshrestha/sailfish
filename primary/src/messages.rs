@@ -18,6 +18,8 @@ pub struct Header {
     pub parents: BTreeSet<Digest>,
     pub id: Digest,
     pub signature: Signature,
+    pub timeout_cert: TimeoutCert,
+    pub no_vote_cert: TimeoutCert,
 }
 
 impl Header {
@@ -35,6 +37,8 @@ impl Header {
             parents,
             id: Digest::default(),
             signature: Signature::default(),
+            timeout_cert: TimeoutCert::new(round),
+            no_vote_cert: TimeoutCert::new(round)
         };
         let id = header.digest();
         let signature = signature_service.request_signature(id.clone()).await;
@@ -64,6 +68,9 @@ impl Header {
         self.signature
             .verify(&self.id, &self.author)
             .map_err(DagError::from)
+
+        // Check if pointer to prev leader exists
+        
     }
 }
 
@@ -99,6 +106,71 @@ impl fmt::Debug for Header {
 impl fmt::Display for Header {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "B{}({})", self.round, self.author)
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Timeout {
+    pub round: Round,
+    pub author: PublicKey,
+    pub signature: Signature,
+}
+
+impl Timeout {
+    pub async fn new(
+        round: Round,
+        author: PublicKey,
+        signature_service: &mut SignatureService,
+    ) -> Self {
+        let timeout = Self {
+            round,
+            author,
+            signature: Signature::default(),
+        };
+        let signature = signature_service.request_signature(timeout.digest()).await;
+        Self {
+            signature,
+            ..timeout
+        }
+    }
+
+    pub fn verify(&self, committee: &Committee) -> DagResult<()> {
+        // Ensure the authority has voting rights.
+        ensure!(
+            committee.stake(&self.author) > 0,
+            DagError::UnknownAuthority(self.author)
+        );
+
+        // Check the signature.
+        self.signature
+            .verify(&self.digest(), &self.author)
+            .map_err(DagError::from)
+    }
+}
+
+impl Hash for Timeout {
+    fn digest(&self) -> Digest {
+        let mut hasher = Sha512::new();
+        hasher.update(self.round.to_le_bytes());
+        hasher.update(&self.author);
+        Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
+    }
+}
+
+impl fmt::Debug for Timeout {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "Timeout: R{}({})",
+            self.round,
+            self.author,
+        )
+    }
+}
+
+impl fmt::Display for Timeout {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "Round {} Timeout by {}", self.round, self.author)
     }
 }
 
@@ -162,6 +234,57 @@ impl fmt::Debug for Vote {
             self.author,
             self.id
         )
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct TimeoutCert {
+    pub round: Round,
+    // Stores a list of public keys and their corresponding signatures.
+    pub timeouts: Vec<(PublicKey, Signature)>,
+}
+
+impl TimeoutCert {
+    pub fn new(round: Round) -> Self {
+        Self {
+            round,
+            timeouts: Vec::new(),
+        }
+    }
+
+    // Adds a timeout to the certificate. 
+    pub fn add_timeout(&mut self, author: PublicKey, signature: Signature) -> DagResult<()> {
+        // Ensure this public key hasn't already submitted a timeout for this round
+        if self.timeouts.iter().any(|(pk, _)| *pk == author) {
+            return Err(DagError::AuthorityReuse(author));
+        }
+
+        // Add the timeout to the list
+        self.timeouts.push((author, signature));
+
+        Ok(())
+    }
+
+    // Verifies the timeout certificate against the committee.
+    pub fn verify(&self, committee: &Committee) -> DagResult<()> {
+        let mut weight = 0;
+
+        let mut used = HashSet::new();
+        for (name, _) in self.timeouts.iter() {
+            ensure!(!used.contains(name), DagError::AuthorityReuse(*name));
+            let voting_rights = committee.stake(name);
+            ensure!(voting_rights > 0, DagError::UnknownAuthority(*name));
+            used.insert(*name);
+            weight += voting_rights;
+        }
+
+        // Check if the accumulated weight meets the quorum threshold.
+        ensure!(
+            weight >= committee.quorum_threshold(),
+            DagError::CertificateRequiresQuorum
+        );
+
+        Ok(())
     }
 }
 

@@ -1,7 +1,7 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::aggregators::{CertificatesAggregator, VotesAggregator};
+use crate::aggregators::{CertificatesAggregator, TimeoutAggregator, VotesAggregator};
 use crate::error::{DagError, DagResult};
-use crate::messages::{Certificate, Header, Vote};
+use crate::messages::{Certificate, Header, Timeout, TimeoutCert, Vote};
 use crate::primary::{PrimaryMessage, Round};
 use crate::synchronizer::Synchronizer;
 use async_recursion::async_recursion;
@@ -37,7 +37,7 @@ pub struct Core {
     /// The depth of the garbage collector.
     gc_depth: Round,
 
-    /// Receiver for dag messages (headers, votes, certificates).
+    /// Receiver for dag messages (headers, timeouts, votes, certificates).
     rx_primaries: Receiver<PrimaryMessage>,
     /// Receives loopback headers from the `HeaderWaiter`.
     rx_header_waiter: Receiver<Header>,
@@ -45,10 +45,14 @@ pub struct Core {
     rx_certificate_waiter: Receiver<Certificate>,
     /// Receives our newly created headers from the `Proposer`.
     rx_proposer: Receiver<Header>,
+    /// Receives our newly created headers from the `Proposer`.
+    rx_timeout: Receiver<Timeout>,
     /// Output all certificates to the consensus layer.
     tx_consensus: Sender<Certificate>,
     /// Send valid a quorum of certificates' ids to the `Proposer` (along with their round).
     tx_proposer: Sender<(Vec<Certificate>, Round)>,
+    /// Send a valid TimeoutCertificate along with the round to the `Proposer`.
+    tx_timeout_cert: Sender<(TimeoutCert, Round)>,
 
     /// The last garbage collected round.
     gc_round: Round,
@@ -66,6 +70,8 @@ pub struct Core {
     network: ReliableSender,
     /// Keeps the cancel handlers of the messages we sent.
     cancel_handlers: HashMap<Round, Vec<CancelHandler>>,
+    /// Aggregates timeouts to use for sending timeout certificate.
+    timeouts_aggregators: HashMap<Round, Box<TimeoutAggregator>>,
 }
 
 impl Core {
@@ -82,8 +88,10 @@ impl Core {
         rx_header_waiter: Receiver<Header>,
         rx_certificate_waiter: Receiver<Certificate>,
         rx_proposer: Receiver<Header>,
+        rx_timeout: Receiver<Timeout>,
         tx_consensus: Sender<Certificate>,
         tx_proposer: Sender<(Vec<Certificate>, Round)>,
+        tx_timeout_cert: Sender<(TimeoutCert, Round)>,
     ) {
         tokio::spawn(async move {
             Self {
@@ -98,8 +106,10 @@ impl Core {
                 rx_header_waiter,
                 rx_certificate_waiter,
                 rx_proposer,
+                rx_timeout,
                 tx_consensus,
                 tx_proposer,
+                tx_timeout_cert,
                 gc_round: 0,
                 last_voted: HashMap::with_capacity(2 * gc_depth as usize),
                 processing: HashMap::with_capacity(2 * gc_depth as usize),
@@ -108,10 +118,38 @@ impl Core {
                 certificates_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 network: ReliableSender::new(),
                 cancel_handlers: HashMap::with_capacity(2 * gc_depth as usize),
+                timeouts_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
             }
             .run()
             .await;
         });
+    }
+
+    async fn process_own_timeout(&mut self, timeout: Timeout) -> DagResult<()> {
+        // Serialize the Timeout instance into bytes using bincode or a similar serialization tool.
+        let bytes = bincode::serialize(&PrimaryMessage::Timeout(timeout.clone()))
+            .expect("Failed to serialize own timeout");
+
+        // Broadcast the serialized Timeout to all other primaries.
+        let addresses = self
+            .committee
+            .others_primaries(&self.name)
+            .iter()
+            .map(|(_, info)| info.primary_to_primary)
+            .collect();
+
+        // Send the Timeout to each address.
+        let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
+
+        self.cancel_handlers
+            .entry(timeout.round)
+            .or_insert_with(Vec::new)
+            .extend(handlers);
+
+        // Log the broadcast for debugging purposes.
+        debug!("Broadcasted own timeout for round {}", timeout.round);
+
+        Ok(())
     }
 
     async fn process_own_header(&mut self, header: Header) -> DagResult<()> {
@@ -209,6 +247,26 @@ impl Core {
                     .or_insert_with(Vec::new)
                     .push(handler);
             }
+        }
+        Ok(())
+    }
+
+    #[async_recursion]
+    async fn process_timeout(&mut self, timeout: Timeout) -> DagResult<()> {
+        debug!("Processing {:?}", timeout);
+
+        // Check if we have enough certificates to enter a new dag round and propose a header.
+        if let Some(timeout_cert) = self
+            .timeouts_aggregators
+            .entry(timeout.round)
+            .or_insert_with(|| Box::new(TimeoutAggregator::new()))
+            .append(timeout.clone(), &self.committee)?
+        {
+            // Send it to the `Proposer`.
+            self.tx_timeout_cert
+                .send((timeout_cert, timeout.round))
+                .await
+                .expect("Failed to send timeout");
         }
         Ok(())
     }
@@ -317,6 +375,18 @@ impl Core {
         Ok(())
     }
 
+    fn sanitize_timeout(&mut self, timeout: &Timeout) -> DagResult<()> {
+        ensure!(
+            self.gc_round <= timeout.round,
+            DagError::TooOld(timeout.digest(), timeout.round)
+        );
+
+        // Verify the header's signature.
+        timeout.verify(&self.committee)?;
+
+        Ok(())
+    }
+
     fn sanitize_vote(&mut self, vote: &Vote) -> DagResult<()> {
         ensure!(
             self.current_header.round <= vote.round,
@@ -359,6 +429,13 @@ impl Core {
                             }
 
                         },
+                        PrimaryMessage::Timeout(timeout) => {
+                            match self.sanitize_timeout(&timeout) {
+                                Ok(()) => self.process_timeout(timeout).await,
+                                error => error
+                            }
+
+                        },
                         PrimaryMessage::Vote(vote) => {
                             match self.sanitize_vote(&vote) {
                                 Ok(()) => self.process_vote(vote).await,
@@ -386,6 +463,8 @@ impl Core {
 
                 // We also receive here our new headers created by the `Proposer`.
                 Some(header) = self.rx_proposer.recv() => self.process_own_header(header).await,
+                // We also receive here our timeout created by the `Proposer`.
+                Some(timeout) = self.rx_timeout.recv() => self.process_own_timeout(timeout).await,
             };
             match result {
                 Ok(()) => (),

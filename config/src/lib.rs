@@ -181,6 +181,7 @@ impl Committee {
     }
 
     /// Returns a leader node in a round-robin fashion.
+    /// This does not have to be changed because it works for odd and even numbers.
     pub fn leader(&self, seed: usize) -> PublicKey {
         let mut keys: Vec<_> = self.authorities.keys().cloned().collect();
         keys.sort();

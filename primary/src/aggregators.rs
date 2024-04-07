@@ -1,6 +1,6 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
-use crate::messages::{Certificate, Header, Vote};
+use crate::messages::{Certificate, Header, Timeout, TimeoutCert, Vote};
 use config::{Committee, Stake};
 use crypto::{PublicKey, Signature};
 use std::collections::HashSet;
@@ -78,6 +78,45 @@ impl CertificatesAggregator {
         if self.weight >= committee.quorum_threshold() {
             //self.weight = 0; // Ensures quorum is only reached once.
             return Ok(Some(self.certificates.drain(..).collect()));
+        }
+        Ok(None)
+    }
+}
+
+/// Aggregates timeouts for a particular round into an action or trigger.
+pub struct TimeoutAggregator {
+    weight: Stake,
+    timeouts: Vec<(PublicKey, Signature)>,
+    used: HashSet<PublicKey>,
+}
+
+impl TimeoutAggregator {
+    pub fn new() -> Self {
+        Self {
+            weight: 0,
+            timeouts: Vec::new(),
+            used: HashSet::new(),
+        }
+    }
+
+    pub fn append(
+        &mut self,
+        timeout: Timeout,
+        committee: &Committee,
+    ) -> DagResult<Option<TimeoutCert>> {
+        let author = timeout.author;
+
+        // Ensure it is the first time this authority sends a timeout.
+        ensure!(self.used.insert(author), DagError::AuthorityReuse(author));
+
+        self.timeouts.push((author, timeout.signature));
+        self.weight += committee.stake(&author);
+        if self.weight >= committee.quorum_threshold() {
+            // Once quorum is reached, you might want to reset for the next round or trigger an action.
+            return Ok(Some(TimeoutCert {
+                round: timeout.round.clone(),
+                timeouts: self.timeouts.clone(),
+            })); // Return the authorities that contributed to this quorum.
         }
         Ok(None)
     }

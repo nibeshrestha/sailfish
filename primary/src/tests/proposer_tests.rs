@@ -11,6 +11,8 @@ async fn propose_empty() {
     let (_tx_parents, rx_parents) = channel(1);
     let (_tx_our_digests, rx_our_digests) = channel(1);
     let (tx_headers, mut rx_headers) = channel(1);
+    let (tx_timeout, rx_timeout) = channel(1);
+    let (tx_timeout_cert, rx_timeout_cert) = channel(1);
 
     // Spawn the proposer.
     Proposer::spawn(
@@ -22,6 +24,8 @@ async fn propose_empty() {
         /* rx_core */ rx_parents,
         /* rx_workers */ rx_our_digests,
         /* tx_core */ tx_headers,
+        tx_timeout,
+        rx_timeout_cert
     );
 
     // Ensure the proposer makes a correct empty header.
@@ -39,6 +43,8 @@ async fn propose_payload() {
     let (_tx_parents, rx_parents) = channel(1);
     let (tx_our_digests, rx_our_digests) = channel(1);
     let (tx_headers, mut rx_headers) = channel(1);
+    let (tx_timeout, rx_timeout) = channel(1);
+    let (tx_timeout_cert, rx_timeout_cert) = channel(1);
 
     // Spawn the proposer.
     Proposer::spawn(
@@ -50,6 +56,8 @@ async fn propose_payload() {
         /* rx_core */ rx_parents,
         /* rx_workers */ rx_our_digests,
         /* tx_core */ tx_headers,
+        tx_timeout,
+        rx_timeout_cert
     );
 
     // Send enough digests for the header payload.
