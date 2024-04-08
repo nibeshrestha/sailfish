@@ -1,7 +1,7 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::aggregators::{CertificatesAggregator, TimeoutAggregator, VotesAggregator};
+use crate::aggregators::{CertificatesAggregator, NoVoteAggregator, TimeoutAggregator, VotesAggregator};
 use crate::error::{DagError, DagResult};
-use crate::messages::{Certificate, Header, Timeout, TimeoutCert, Vote};
+use crate::messages::{Certificate, Header, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, Vote};
 use crate::primary::{PrimaryMessage, Round};
 use crate::synchronizer::Synchronizer;
 use async_recursion::async_recursion;
@@ -45,14 +45,18 @@ pub struct Core {
     rx_certificate_waiter: Receiver<Certificate>,
     /// Receives our newly created headers from the `Proposer`.
     rx_proposer: Receiver<Header>,
-    /// Receives our newly created headers from the `Proposer`.
+    /// Receives our newly created timeouts from the `Proposer`.
     rx_timeout: Receiver<Timeout>,
+    /// Receives our newly created no vote msgs from the `Proposer`.
+    rx_no_vote_msg: Receiver<NoVoteMsg>,
     /// Output all certificates to the consensus layer.
     tx_consensus: Sender<Certificate>,
     /// Send valid a quorum of certificates' ids to the `Proposer` (along with their round).
     tx_proposer: Sender<(Vec<Certificate>, Round)>,
     /// Send a valid TimeoutCertificate along with the round to the `Proposer`.
     tx_timeout_cert: Sender<(TimeoutCert, Round)>,
+    /// Send a valid NoVoteCert along with the round to the `Proposer`.
+    tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
 
     /// The last garbage collected round.
     gc_round: Round,
@@ -72,6 +76,8 @@ pub struct Core {
     cancel_handlers: HashMap<Round, Vec<CancelHandler>>,
     /// Aggregates timeouts to use for sending timeout certificate.
     timeouts_aggregators: HashMap<Round, Box<TimeoutAggregator>>,
+    /// Aggregates no vote messages to use for sending no vote certificates.
+    no_vote_aggregators: HashMap<Round, Box<NoVoteAggregator>>,
 }
 
 impl Core {
@@ -89,9 +95,11 @@ impl Core {
         rx_certificate_waiter: Receiver<Certificate>,
         rx_proposer: Receiver<Header>,
         rx_timeout: Receiver<Timeout>,
+        rx_no_vote_msg: Receiver<NoVoteMsg>,
         tx_consensus: Sender<Certificate>,
         tx_proposer: Sender<(Vec<Certificate>, Round)>,
         tx_timeout_cert: Sender<(TimeoutCert, Round)>,
+        tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
     ) {
         tokio::spawn(async move {
             Self {
@@ -107,9 +115,11 @@ impl Core {
                 rx_certificate_waiter,
                 rx_proposer,
                 rx_timeout,
+                rx_no_vote_msg,
                 tx_consensus,
                 tx_proposer,
                 tx_timeout_cert,
+                tx_no_vote_cert,
                 gc_round: 0,
                 last_voted: HashMap::with_capacity(2 * gc_depth as usize),
                 processing: HashMap::with_capacity(2 * gc_depth as usize),
@@ -119,6 +129,7 @@ impl Core {
                 network: ReliableSender::new(),
                 cancel_handlers: HashMap::with_capacity(2 * gc_depth as usize),
                 timeouts_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
+                no_vote_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
             }
             .run()
             .await;
@@ -148,6 +159,30 @@ impl Core {
 
         // Log the broadcast for debugging purposes.
         debug!("Broadcasted own timeout for round {}", timeout.round);
+
+        Ok(())
+    }
+
+    async fn process_own_no_vote_msg(&mut self, no_vote_msg: NoVoteMsg) -> DagResult<()> {
+        // Serialize the Timeout instance into bytes using bincode or a similar serialization tool.
+        let bytes = bincode::serialize(&PrimaryMessage::NoVoteMsg(no_vote_msg.clone()))
+            .expect("Failed to serialize own no vote message");
+
+        // Send No Vote Msg to the leader of the round
+        let leader_pub_key = self
+            .committee
+            .leader(no_vote_msg.round as usize);
+
+        let address = self
+            .committee
+            .primary(&leader_pub_key)
+            .expect("public key not found")
+            .primary_to_primary;
+        // Send the Timeout to each address.
+        self.network.send(address, Bytes::from(bytes)).await;
+
+        // Log the broadcast for debugging purposes.
+        debug!("Broadcasted own no vote message for round {}", no_vote_msg.round);
 
         Ok(())
     }
@@ -255,7 +290,7 @@ impl Core {
     async fn process_timeout(&mut self, timeout: Timeout) -> DagResult<()> {
         debug!("Processing {:?}", timeout);
 
-        // Check if we have enough certificates to enter a new dag round and propose a header.
+        // Check if we have enough timeout messages to create a timeout cert to propose next header.
         if let Some(timeout_cert) = self
             .timeouts_aggregators
             .entry(timeout.round)
@@ -267,6 +302,26 @@ impl Core {
                 .send((timeout_cert, timeout.round))
                 .await
                 .expect("Failed to send timeout");
+        }
+        Ok(())
+    }
+
+    #[async_recursion]
+    async fn process_no_vote_msg(&mut self, no_vote_msg: NoVoteMsg) -> DagResult<()> {
+        debug!("Processing {:?}", no_vote_msg);
+
+        // Check if we have no vote messages to create a no vote cert to propose next header(as a leader).
+        if let Some(no_vote_cert) = self
+            .no_vote_aggregators
+            .entry(no_vote_msg.round)
+            .or_insert_with(|| Box::new(NoVoteAggregator::new()))
+            .append(no_vote_msg.clone(), &self.committee)?
+        {
+            // Send it to the `Proposer`.
+            self.tx_no_vote_cert
+                .send((no_vote_cert, no_vote_msg.round))
+                .await
+                .expect("Failed to send no vote message");
         }
         Ok(())
     }
@@ -381,8 +436,20 @@ impl Core {
             DagError::TooOld(timeout.digest(), timeout.round)
         );
 
-        // Verify the header's signature.
+        // Verify the timeout's signature.
         timeout.verify(&self.committee)?;
+
+        Ok(())
+    }
+
+    fn sanitize_no_vote_msg(&mut self, no_vote_msg: &NoVoteMsg) -> DagResult<()> {
+        ensure!(
+            self.gc_round <= no_vote_msg.round,
+            DagError::TooOld(no_vote_msg.digest(), no_vote_msg.round)
+        );
+
+        // Verify the no vote message's signature.
+        no_vote_msg.verify(&self.committee)?;
 
         Ok(())
     }
@@ -436,6 +503,13 @@ impl Core {
                             }
 
                         },
+                        PrimaryMessage::NoVoteMsg(no_vote_msg) => {
+                            match self.sanitize_no_vote_msg(&no_vote_msg) {
+                                Ok(()) => self.process_no_vote_msg(no_vote_msg).await,
+                                error => error
+                            }
+
+                        },
                         PrimaryMessage::Vote(vote) => {
                             match self.sanitize_vote(&vote) {
                                 Ok(()) => self.process_vote(vote).await,
@@ -465,6 +539,8 @@ impl Core {
                 Some(header) = self.rx_proposer.recv() => self.process_own_header(header).await,
                 // We also receive here our timeout created by the `Proposer`.
                 Some(timeout) = self.rx_timeout.recv() => self.process_own_timeout(timeout).await,
+                // We also receive here our no vote messages created by the `Proposer`.
+                Some(no_vote_msg) = self.rx_no_vote_msg.recv() => self.process_own_no_vote_msg(no_vote_msg).await,
             };
             match result {
                 Ok(()) => (),

@@ -1,6 +1,6 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
-use crate::messages::{Certificate, Header, Timeout, TimeoutCert, Vote};
+use crate::messages::{Certificate, Header, Timeout, TimeoutCert, Vote, NoVoteMsg, NoVoteCert};
 use config::{Committee, Stake};
 use crypto::{PublicKey, Signature};
 use std::collections::HashSet;
@@ -117,6 +117,45 @@ impl TimeoutAggregator {
                 round: timeout.round.clone(),
                 timeouts: self.timeouts.clone(),
             })); // Return the authorities that contributed to this quorum.
+        }
+        Ok(None)
+    }
+}
+
+/// Aggregates no-vote messages for a particular round into a certification.
+pub struct NoVoteAggregator {
+    weight: Stake,
+    no_votes: Vec<(PublicKey, Signature)>,
+    used: HashSet<PublicKey>,
+}
+
+impl NoVoteAggregator {
+    pub fn new() -> Self {
+        Self {
+            weight: 0,
+            no_votes: Vec::new(),
+            used: HashSet::new(),
+        }
+    }
+
+    pub fn append(
+        &mut self,
+        no_vote_msg: NoVoteMsg,
+        committee: &Committee,
+    ) -> DagResult<Option<NoVoteCert>> {
+        let author = no_vote_msg.author;
+
+        // Ensure it is the first time this authority sends a no-vote message.
+        ensure!(self.used.insert(author), DagError::AuthorityReuse(author));
+
+        self.no_votes.push((author, no_vote_msg.signature));
+        self.weight += committee.stake(&author);
+        if self.weight >= committee.quorum_threshold() {
+            // Once quorum is reached, you might reset for the next round or use the certification as needed.
+            return Ok(Some(NoVoteCert {
+                round: no_vote_msg.round.clone(),
+                no_votes: self.no_votes.clone(),
+            })); // Return the certification that aggregates the no-votes reaching quorum.
         }
         Ok(None)
     }
