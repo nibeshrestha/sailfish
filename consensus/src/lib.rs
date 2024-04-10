@@ -116,11 +116,11 @@ impl Consensus {
         // Listen to incoming certificates and header quorums.
         loop {
             tokio::select! {
-                // Listen to incoming header quorums.
+                // Listen to incoming headers.
                 Some(header) = self.rx_primary_header.recv() => {
                     debug!("Processing {:?}", header);
 
-                    // Try to order the dag to commit. Start from the previous round and check if it is a leader round.
+                    // Try to order the dag to commit. Start from the previous round.
                     let r = header.round - 1;
 
                     // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
@@ -141,7 +141,7 @@ impl Consensus {
                     let current_stake_value = *current_stake.unwrap_or(&0);
 
                     // Commit if we have QT
-                    if current_stake_value > self.committee.quorum_threshold() {
+                    if current_stake_value >= self.committee.quorum_threshold() {
                         // Get an ordered list of past leaders that are linked to the current leader.
                         debug!("Leader {:?} has enough support with header", leader);
                         let mut sequence = Vec::new();
