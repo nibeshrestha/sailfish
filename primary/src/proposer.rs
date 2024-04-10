@@ -215,6 +215,7 @@ impl Proposer {
         let mut advance = true;
 
         let timer = sleep(Duration::from_millis(self.max_header_delay));
+        let mut timeout_sent = false;
         tokio::pin!(timer);
 
         loop {
@@ -229,9 +230,10 @@ impl Proposer {
             let timer_expired = timer.is_elapsed();
 
             // TODO: This has to be fixed by sending timeout only once.
-            if timer_expired {
+            if timer_expired && !timeout_sent  {
                 warn!("Timer expired for round {}", self.round);
                 self.make_timeout_msg().await;
+                timeout_sent = true;
             }
 
             // TODO: If leader, wait for NVC.
@@ -251,6 +253,7 @@ impl Proposer {
                 // Reschedule the timer.
                 let deadline = Instant::now() + Duration::from_millis(self.max_header_delay);
                 timer.as_mut().reset(deadline);
+                timeout_sent = false;
             }
 
             tokio::select! {
@@ -275,10 +278,9 @@ impl Proposer {
 
                     // Check whether we can advance to the next round. Note that if we timeout,
                     // we ignore this check and advance anyway.
-                    advance = match self.round % 2 {
-                        0 => self.update_leader(),
-                        _ => self.enough_votes(),
-                    }
+                    // TODO: (1) Implement the wait for NVC if leader logic here
+                    // (2) Also implement the wait for leader idea what is was there before
+                    advance = self.update_leader();
                 }
                 Some((digest, worker_id)) = self.rx_workers.recv() => {
                     self.payload_size += digest.size();

@@ -97,6 +97,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
         ("primary", _) => {
             let (tx_new_certificates, rx_new_certificates) = channel(CHANNEL_CAPACITY);
             let (tx_feedback, rx_feedback) = channel(CHANNEL_CAPACITY);
+            let (tx_consensus_header, rx_consensus_header) = channel(CHANNEL_CAPACITY);
             Primary::spawn(
                 keypair,
                 committee.clone(),
@@ -104,11 +105,13 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
                 store,
                 /* tx_consensus */ tx_new_certificates,
                 /* rx_consensus */ rx_feedback,
+                tx_consensus_header,
             );
             Consensus::spawn(
                 committee,
                 parameters.gc_depth,
                 /* rx_primary */ rx_new_certificates,
+                rx_consensus_header,
                 /* tx_primary */ tx_feedback,
                 tx_output,
             );

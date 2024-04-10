@@ -57,6 +57,8 @@ pub struct Core {
     tx_timeout_cert: Sender<(TimeoutCert, Round)>,
     /// Send a valid NoVoteCert along with the round to the `Proposer`.
     tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
+    /// Send a the header that has voted for the prev leader to the `Consensus` logic.
+    tx_consensus_header: Sender<Header>,
 
     /// The last garbage collected round.
     gc_round: Round,
@@ -100,6 +102,7 @@ impl Core {
         tx_proposer: Sender<(Vec<Certificate>, Round)>,
         tx_timeout_cert: Sender<(TimeoutCert, Round)>,
         tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
+        tx_consensus_header: Sender<Header>,
     ) {
         tokio::spawn(async move {
             Self {
@@ -120,6 +123,7 @@ impl Core {
                 tx_proposer,
                 tx_timeout_cert,
                 tx_no_vote_cert,
+                tx_consensus_header,
                 gc_round: 0,
                 last_voted: HashMap::with_capacity(2 * gc_depth as usize),
                 processing: HashMap::with_capacity(2 * gc_depth as usize),
@@ -214,6 +218,10 @@ impl Core {
     #[async_recursion]
     async fn process_header(&mut self, header: &Header) -> DagResult<()> {
         debug!("Processing {:?}", header);
+        // Send header to consensus
+        self.tx_consensus_header.send(header.clone())
+            .await
+            .expect("Failed to send header to consensus");
         // Indicate that we are processing this header.
         self.processing
             .entry(header.round)
@@ -230,6 +238,7 @@ impl Core {
         }
 
         // Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
+        // TODO: Seems like the best place to include is_valid logic?
         let mut stake = 0;
         for x in parents {
             ensure!(
@@ -297,6 +306,7 @@ impl Core {
             .or_insert_with(|| Box::new(TimeoutAggregator::new()))
             .append(timeout.clone(), &self.committee)?
         {
+            debug!("Aggregated timeout cert {:?}", timeout);
             // Send it to the `Proposer`.
             self.tx_timeout_cert
                 .send((timeout_cert, timeout.round))
