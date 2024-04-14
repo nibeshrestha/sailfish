@@ -137,7 +137,7 @@ impl Proposer {
 
     async fn make_header(&mut self) {
         // Make a new header.
-        let header = Header::new(
+        let mut header = Header::new(
             self.name,
             self.round,
             self.digests.drain(..).collect(),
@@ -145,6 +145,13 @@ impl Proposer {
             &mut self.signature_service,
         )
         .await;
+
+        if self.last_timeout_cert.round == self.round {
+            header.timeout_cert = self.last_timeout_cert.clone();
+        }
+        if self.committee.leader(self.round as usize) == self.name && self.last_no_vote_cert.round == self.round {
+            header.no_vote_cert = self.last_no_vote_cert.clone();
+        }
         debug!("Created {:?}", header);
 
         #[cfg(feature = "benchmark")]
@@ -226,6 +233,8 @@ impl Proposer {
             // the leader or the leader has enough votes to enable a commit).
             let enough_parents = !self.last_parents.is_empty();
             let timeout_cert_gathered = !self.last_timeout_cert.round == self.round;
+            let is_leader = self.committee.leader(self.round as usize) == self.name;
+            let no_vote_cert_gathered = self.last_no_vote_cert.round == self.round;
             let enough_digests = self.payload_size >= self.header_size;
             let timer_expired = timer.is_elapsed();
 
@@ -236,9 +245,8 @@ impl Proposer {
                 timeout_sent = true;
             }
 
-            // TODO: If leader, wait for NVC.
-            if ((timer_expired && timeout_cert_gathered) || (enough_digests && advance)) && enough_parents {
-                if timer_expired {
+            if (((timer_expired && timeout_cert_gathered) || (enough_digests && advance)) && enough_parents) && (!is_leader || no_vote_cert_gathered) {
+                if timer_expired && self.last_leader.is_none() && !is_leader {
                     self.make_no_vote_msg().await;
                 }
 
@@ -287,11 +295,10 @@ impl Proposer {
                     self.digests.push((digest, worker_id));
                 }
                 Some((timeout_cert, round)) = self.rx_timeout_cert.recv() => {
-                    match round.cmp(&self.round) {
+                    match round.cmp(&self.last_timeout_cert.round) {
                         Ordering::Greater => {
                             // We accept round bigger than our current round to jump ahead in case we were
                             // late (or just joined the network).
-                            self.round = round;
                             self.last_timeout_cert = timeout_cert;
 
                             // TODO: How do we react?
@@ -306,11 +313,10 @@ impl Proposer {
                     }
                 }
                 Some((no_vote_cert, round)) = self.rx_no_vote_cert.recv() => {
-                    match round.cmp(&self.round) {
+                    match round.cmp(&self.last_no_vote_cert.round) {
                         Ordering::Greater => {
                             // We accept round bigger than our current round to jump ahead in case we were
                             // late (or just joined the network).
-                            self.round = round;
                             self.last_no_vote_cert = no_vote_cert;
 
                             // TODO: How do we react?

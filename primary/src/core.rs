@@ -164,11 +164,11 @@ impl Core {
         // Log the broadcast for debugging purposes.
         debug!("Broadcasted own timeout for round {}", timeout.round);
 
-        Ok(())
+        self.process_timeout(timeout).await
     }
 
     async fn process_own_no_vote_msg(&mut self, no_vote_msg: NoVoteMsg) -> DagResult<()> {
-        // Serialize the Timeout instance into bytes using bincode or a similar serialization tool.
+        // Serialize the No Vote Msg instance into bytes using bincode or a similar serialization tool.
         let bytes = bincode::serialize(&PrimaryMessage::NoVoteMsg(no_vote_msg.clone()))
             .expect("Failed to serialize own no vote message");
 
@@ -182,7 +182,7 @@ impl Core {
             .primary(&leader_pub_key)
             .expect("public key not found")
             .primary_to_primary;
-        // Send the Timeout to each address.
+        // Send the No Vote Msg to each address.
         self.network.send(address, Bytes::from(bytes)).await;
 
         // Log the broadcast for debugging purposes.
@@ -236,21 +236,29 @@ impl Core {
             debug!("Processing of {} suspended: missing parent(s)", header.id);
             return Ok(());
         }
-
         // Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
-        // TODO: Seems like the best place to include is_valid logic?
         let mut stake = 0;
+        let mut has_leader = false;
         for x in parents {
             ensure!(
                 x.round() + 1 == header.round,
                 DagError::MalformedHeader(header.id.clone())
             );
             stake += self.committee.stake(&x.origin());
+            
+            has_leader = has_leader || self.committee.leader((header.round - 1) as usize).eq(&x.header.author);
         }
         ensure!(
             stake >= self.committee.quorum_threshold(),
             DagError::HeaderRequiresQuorum(header.id.clone())
         );
+
+        if !has_leader {
+            header.timeout_cert.verify(&self.committee)?;
+            if self.committee.leader(header.round as usize).eq(&header.author) {
+                header.no_vote_cert.verify(&self.committee)?;
+            }
+        }
 
         // Ensure we have the payload. If we don't, the synchronizer will ask our workers to get it, and then
         // reschedule processing of this header once we have it.
@@ -319,6 +327,22 @@ impl Core {
     #[async_recursion]
     async fn process_no_vote_msg(&mut self, no_vote_msg: NoVoteMsg) -> DagResult<()> {
         debug!("Processing {:?}", no_vote_msg);
+
+        // Check if there's already an aggregator for this round, prepare to add if not
+        if !self.no_vote_aggregators.contains_key(&no_vote_msg.round) {
+            let initial_no_vote_msg = NoVoteMsg::new(
+                no_vote_msg.round,
+                self.name.clone(),
+                &mut self.signature_service
+            ).await;
+
+            let mut aggregator = NoVoteAggregator::new();
+            // Add the initial message to the new aggregator
+            aggregator.append(initial_no_vote_msg, &self.committee)?;
+
+            // Insert the new aggregator into the map
+            self.no_vote_aggregators.insert(no_vote_msg.round, Box::new(aggregator));
+        }
 
         // Check if we have no vote messages to create a no vote cert to propose next header(as a leader).
         if let Some(no_vote_cert) = self
