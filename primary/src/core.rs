@@ -175,7 +175,7 @@ impl Core {
         // Send No Vote Msg to the leader of the round
         let leader_pub_key = self
             .committee
-            .leader(no_vote_msg.round as usize);
+            .leader((no_vote_msg.round + 1) as usize);
 
         let address = self
             .committee
@@ -183,7 +183,11 @@ impl Core {
             .expect("public key not found")
             .primary_to_primary;
         // Send the No Vote Msg to each address.
-        self.network.send(address, Bytes::from(bytes)).await;
+        let handler = self.network.send(address, Bytes::from(bytes)).await;
+        self.cancel_handlers
+            .entry(no_vote_msg.round)
+            .or_insert_with(Vec::new)
+            .push(handler);
 
         // Log the broadcast for debugging purposes.
         debug!("Broadcasted own no vote message for round {}", no_vote_msg.round);
@@ -352,6 +356,7 @@ impl Core {
             .append(no_vote_msg.clone(), &self.committee)?
         {
             // Send it to the `Proposer`.
+            debug!("Aggregated no vote cert {:?}", no_vote_msg);
             self.tx_no_vote_cert
                 .send((no_vote_cert, no_vote_msg.round))
                 .await

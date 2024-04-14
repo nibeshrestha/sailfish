@@ -28,6 +28,8 @@ impl Header {
         round: Round,
         payload: BTreeMap<Digest, WorkerId>,
         parents: BTreeSet<Digest>,
+        timeout_cert: TimeoutCert,
+        no_vote_cert: NoVoteCert,
         signature_service: &mut SignatureService,
     ) -> Self {
         let header = Self {
@@ -37,8 +39,8 @@ impl Header {
             parents,
             id: Digest::default(),
             signature: Signature::default(),
-            timeout_cert: TimeoutCert::new(0),
-            no_vote_cert: NoVoteCert::new(0)
+            timeout_cert,
+            no_vote_cert,
         };
         let id = header.digest();
         let signature = signature_service.request_signature(id.clone()).await;

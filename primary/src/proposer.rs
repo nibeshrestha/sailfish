@@ -6,7 +6,7 @@ use crypto::Hash as _;
 use crypto::{Digest, PublicKey, SignatureService};
 #[cfg(feature = "benchmark")]
 use log::info;
-use log::{debug, log_enabled, warn};
+use log::{debug, warn};
 use std::cmp::Ordering;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration, Instant};
@@ -137,21 +137,29 @@ impl Proposer {
 
     async fn make_header(&mut self) {
         // Make a new header.
-        let mut header = Header::new(
+        // Prepare the timeout and no vote certificates
+        let timeout_cert = if self.last_timeout_cert.round == self.round - 1 {
+            self.last_timeout_cert.clone()
+        } else {
+            TimeoutCert::new(0) // Assuming TimeoutCert::new creates an empty certificate
+        };
+
+        let no_vote_cert = if self.committee.leader((self.round) as usize) == self.name && self.last_no_vote_cert.round == self.round - 1 {
+            self.last_no_vote_cert.clone()
+        } else {
+            NoVoteCert::new(0) // Assuming NoVoteCert::new creates an empty certificate
+        };
+        let header = Header::new(
             self.name,
             self.round,
             self.digests.drain(..).collect(),
             self.last_parents.drain(..).map(|x| x.digest()).collect(),
+            timeout_cert,
+            no_vote_cert,
             &mut self.signature_service,
         )
         .await;
 
-        if self.last_timeout_cert.round == self.round {
-            header.timeout_cert = self.last_timeout_cert.clone();
-        }
-        if self.committee.leader(self.round as usize) == self.name && self.last_no_vote_cert.round == self.round {
-            header.no_vote_cert = self.last_no_vote_cert.clone();
-        }
         debug!("Created {:?}", header);
 
         #[cfg(feature = "benchmark")]
@@ -183,39 +191,6 @@ impl Proposer {
         self.last_leader.is_some()
     }
 
-    /// Check whether if we have (i) 2f+1 votes for the leader, (ii) f+1 nodes not voting for the leader,
-    /// or (iii) there is no leader to vote for.
-    fn enough_votes(&self) -> bool {
-        let leader = match &self.last_leader {
-            Some(x) => x.digest(),
-            None => return true,
-        };
-
-        let mut votes_for_leader = 0;
-        let mut no_votes = 0;
-        for certificate in &self.last_parents {
-            let stake = self.committee.stake(&certificate.origin());
-            if certificate.header.parents.contains(&leader) {
-                votes_for_leader += stake;
-            } else {
-                no_votes += stake;
-            }
-        }
-
-        let mut enough_votes = votes_for_leader >= self.committee.quorum_threshold();
-        if log_enabled!(log::Level::Debug) && enough_votes {
-            if let Some(leader) = self.last_leader.as_ref() {
-                debug!(
-                    "Got enough support for leader {} at round {}",
-                    leader.origin(),
-                    self.round
-                );
-            }
-        }
-        enough_votes |= no_votes >= self.committee.validity_threshold();
-        enough_votes
-    }
-
     /// Main loop listening to incoming messages.
     pub async fn run(&mut self) {
         debug!("Dag starting at round {}", self.round);
@@ -232,8 +207,8 @@ impl Proposer {
             // (ii) we have enough digests (minimum header size) and we are on the happy path (we can vote for
             // the leader or the leader has enough votes to enable a commit).
             let enough_parents = !self.last_parents.is_empty();
-            let timeout_cert_gathered = !self.last_timeout_cert.round == self.round;
-            let is_leader = self.committee.leader(self.round as usize) == self.name;
+            let timeout_cert_gathered = self.last_timeout_cert.round == self.round;
+            let is_next_leader = self.committee.leader((self.round + 1) as usize) == self.name;
             let no_vote_cert_gathered = self.last_no_vote_cert.round == self.round;
             let enough_digests = self.payload_size >= self.header_size;
             let timer_expired = timer.is_elapsed();
@@ -245,8 +220,9 @@ impl Proposer {
                 timeout_sent = true;
             }
 
-            if (((timer_expired && timeout_cert_gathered) || (enough_digests && advance)) && enough_parents) && (!is_leader || no_vote_cert_gathered) {
-                if timer_expired && self.last_leader.is_none() && !is_leader {
+            if ((timer_expired && timeout_cert_gathered && (!is_next_leader || no_vote_cert_gathered)) || (enough_digests && advance)) && enough_parents {
+                
+                if timer_expired && self.last_leader.is_none() && !is_next_leader {
                     self.make_no_vote_msg().await;
                 }
 
@@ -299,7 +275,7 @@ impl Proposer {
                         Ordering::Greater => {
                             // We accept round bigger than our current round to jump ahead in case we were
                             // late (or just joined the network).
-                            self.last_timeout_cert = timeout_cert;
+                            self.last_timeout_cert = timeout_cert.clone();
 
                             // TODO: How do we react?
                         },
@@ -308,7 +284,7 @@ impl Proposer {
                         },
                         Ordering::Equal => {
                             // TODO: Here we have to create header and include the timeout certificate in the header?
-                            self.last_timeout_cert = timeout_cert;
+                            self.last_timeout_cert = timeout_cert.clone();
                         }
                     }
                 }
