@@ -8,14 +8,14 @@ class SettingsError(Exception):
 
 class Settings:
     def __init__(self, key_name, key_path, base_port, repo_name, repo_url,
-                 branch, instance_type, aws_regions):
+                 branch, instance_type, zones):
         inputs_str = [
             key_name, key_path, repo_name, repo_url, branch, instance_type
         ]
-        if isinstance(aws_regions, list):
-            regions = aws_regions
+        if isinstance(zones, list):
+            regions = zones
         else:
-            regions = [aws_regions]
+            regions = [zones]
         inputs_str += regions
         ok = all(isinstance(x, str) for x in inputs_str)
         ok &= isinstance(base_port, int)
@@ -33,7 +33,7 @@ class Settings:
         self.branch = branch
 
         self.instance_type = instance_type
-        self.aws_regions = regions
+        self.zones = regions
 
     @classmethod
     def load(cls, filename):
@@ -48,8 +48,8 @@ class Settings:
                 data['repo']['name'],
                 data['repo']['url'],
                 data['repo']['branch'],
-                data['instances']['type'],
-                data['instances']['regions'],
+                data['instances']['machine_type'],
+                data['instances']['zones'],
             )
         except (OSError, JSONDecodeError) as e:
             raise SettingsError(str(e))
