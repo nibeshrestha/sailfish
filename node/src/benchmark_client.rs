@@ -20,6 +20,7 @@ async fn main() -> Result<()> {
         .about("Benchmark client for Narwhal and Tusk.")
         .args_from_usage("<ADDR> 'The network address of the node where to send txs'")
         .args_from_usage("--size=<INT> 'The size of each transaction in bytes'")
+        .args_from_usage("--burst=<INT> 'Burst duration (in ms)'")
         .args_from_usage("--rate=<INT> 'The rate (txs/s) at which to send the transactions'")
         .args_from_usage("--nodes=[ADDR]... 'Network addresses that must be reachable before starting the benchmark.'")
         .setting(AppSettings::ArgRequiredElseHelp)
@@ -39,6 +40,11 @@ async fn main() -> Result<()> {
         .unwrap()
         .parse::<usize>()
         .context("The size of transactions must be a non-negative integer")?;
+    let burst_duration = matches
+        .value_of("burst")
+        .unwrap()
+        .parse::<u64>()
+        .context("Burst duration must be a non-negative integer")?;
     let rate = matches
         .value_of("rate")
         .unwrap()
@@ -65,6 +71,7 @@ async fn main() -> Result<()> {
         size,
         rate,
         nodes,
+        burst_duration
     };
 
     // Wait for all nodes to be online and synchronized.
@@ -79,12 +86,13 @@ struct Client {
     size: usize,
     rate: u64,
     nodes: Vec<SocketAddr>,
+    burst_duration: u64,
 }
 
 impl Client {
     pub async fn send(&self) -> Result<()> {
         const PRECISION: u64 = 20; // Sample precision.
-        const BURST_DURATION: u64 = 1000 / PRECISION;
+        info!("Burst duration {:?}", self.burst_duration);
 
         // The transaction size must be at least 16 bytes to ensure all txs are different.
         if self.size < 9 {
@@ -104,7 +112,7 @@ impl Client {
         let mut counter = 0;
         let mut r = rand::thread_rng().gen();
         let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
-        let interval = interval(Duration::from_millis(BURST_DURATION));
+        let interval = interval(Duration::from_millis(self.burst_duration));
         tokio::pin!(interval);
 
         // NOTE: This log entry is used to compute performance.
@@ -134,7 +142,7 @@ impl Client {
                     break 'main;
                 }
             }
-            if now.elapsed().as_millis() > BURST_DURATION as u128 {
+            if now.elapsed().as_millis() > self.burst_duration as u128 {
                 // NOTE: This log entry is used to compute performance.
                 warn!("Transaction rate too high for this client");
             }

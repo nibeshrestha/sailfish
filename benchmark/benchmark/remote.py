@@ -210,7 +210,7 @@ class Bench:
 
         return committee
 
-    def _run_single(self, rate, committee, bench_parameters, debug=False):
+    def _run_single(self, rate, burst, committee, bench_parameters, debug=False):
         faults = bench_parameters.faults
 
         # Kill any potentially unfinished run and delete logs.
@@ -229,6 +229,7 @@ class Bench:
                 cmd = CommandMaker.run_client(
                     address,
                     bench_parameters.tx_size,
+                    burst,
                     rate_share,
                     [x for y in workers_addresses for _, x in y]
                 )
@@ -342,15 +343,16 @@ class Bench:
             committee_copy = deepcopy(committee)
             committee_copy.remove_nodes(committee.size() - n)
 
-            for r in bench_parameters.rate:
-                Print.heading(f'\nRunning {n} nodes (input rate: {r:,} tx/s)')
+            for burst in bench_parameters.burst:
+                rate = bench_parameters.rate[0]
+                Print.heading(f'\nRunning {n} nodes (input rate: {rate:,} tx/s, burst : {burst:,})')
 
                 # Run the benchmark.
                 for i in range(bench_parameters.runs):
                     Print.heading(f'Run {i+1}/{bench_parameters.runs}')
                     try:
                         self._run_single(
-                            r, committee_copy, bench_parameters, debug
+                            rate, burst, committee_copy, bench_parameters, debug
                         )
 
                         faults = bench_parameters.faults
