@@ -362,7 +362,7 @@ class Bench:
                             n, 
                             bench_parameters.workers,
                             bench_parameters.collocate,
-                            r, 
+                            rate, 
                             bench_parameters.tx_size, 
                         ))
                     except (subprocess.SubprocessError, GroupException, ParseError) as e:

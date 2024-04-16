@@ -2,3 +2,5 @@ google-cloud==0.34.0
 fabric==3.0.0
 matplotlib==3.3.4
 google-cloud-compute==1.18.0
+decorator==5.1.1
+google-api-python-client==2.122.0

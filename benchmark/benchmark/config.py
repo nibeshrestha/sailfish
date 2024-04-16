@@ -63,6 +63,7 @@ class Committee:
         port = base_port
         self.json = {'authorities': OrderedDict()}
         for name, hosts in addresses.items():
+            port = base_port
             host = hosts.pop(0)
             primary_addr = {
                 'primary_to_primary': f'{host}:{port}',
