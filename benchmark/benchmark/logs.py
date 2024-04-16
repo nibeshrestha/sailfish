@@ -44,9 +44,11 @@ class LogParser:
                 results = p.map(self._parse_primaries, primaries)
         except (ValueError, IndexError, AttributeError) as e:
             raise ParseError(f'Failed to parse nodes\' logs: {e}')
-        proposals, commits, self.configs, primary_ips = zip(*results)
+        proposals, commits, self.configs, primary_ips, leader_commits, non_leader_commits = zip(*results)
         self.proposals = self._merge_results([x.items() for x in proposals])
         self.commits = self._merge_results([x.items() for x in commits])
+        self.leader_commits = self._merge_results([x.items() for x in leader_commits])
+        self.non_leader_commits = self._merge_results([x.items() for x in non_leader_commits])
 
         # Parse the workers logs.
         try:
@@ -106,6 +108,14 @@ class LogParser:
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         commits = self._merge_results([tmp])
 
+        tmp = findall(r'\[(.*Z) .* Committed Leader B\d+\([^ ]+\) -> ([^ ]+=)', log)
+        tmp = [(d, self._to_posix(t)) for t, d in tmp]
+        leader_commits = self._merge_results([tmp])
+
+        tmp = findall(r'\[(.*Z) .* Committed NonLeader B\d+\([^ ]+\) -> ([^ ]+=)', log)
+        tmp = [(d, self._to_posix(t)) for t, d in tmp]
+        non_leader_commits = self._merge_results([tmp])
+
         configs = {
             'header_size': int(
                 search(r'Header size .* (\d+)', log).group(1)
@@ -132,7 +142,7 @@ class LogParser:
 
         ip = search(r'booted on (\d+.\d+.\d+.\d+)', log).group(1)
         
-        return proposals, commits, configs, ip
+        return proposals, commits, configs, ip, leader_commits, non_leader_commits
 
     def _parse_workers(self, log):
         if search(r'(?:panic|Error)', log) is not None:
@@ -164,6 +174,14 @@ class LogParser:
 
     def _consensus_latency(self):
         latency = [c - self.proposals[d] for d, c in self.commits.items()]
+        return mean(latency) if latency else 0
+    
+    def _consensus_leader_latency(self):
+        latency = [c - self.proposals[d] for d, c in self.leader_commits.items()]
+        return mean(latency) if latency else 0
+    
+    def _consensus_non_leader_latency(self):
+        latency = [c - self.proposals[d] for d, c in self.non_leader_commits.items()]
         return mean(latency) if latency else 0
 
     def _end_to_end_throughput(self):
@@ -197,6 +215,8 @@ class LogParser:
         max_batch_delay = self.configs[0]['max_batch_delay']
 
         consensus_latency = self._consensus_latency() * 1_000
+        leader_consensus_latency = self._consensus_leader_latency() * 1_000
+        non_leader_consensus_latency = self._consensus_non_leader_latency() * 1_000
         consensus_tps, consensus_bps, _ = self._consensus_throughput()
         end_to_end_tps, end_to_end_bps, duration = self._end_to_end_throughput()
         end_to_end_latency = self._end_to_end_latency() * 1_000
@@ -227,6 +247,8 @@ class LogParser:
             f' Consensus TPS: {round(consensus_tps):,} tx/s\n'
             f' Consensus BPS: {round(consensus_bps):,} B/s\n'
             f' Consensus latency: {round(consensus_latency):,} ms\n'
+            f' Consensus leader latency: {round(leader_consensus_latency):,} ms\n'
+            f' Consensus non leader latency: {round(non_leader_consensus_latency):,} ms\n'
             '\n'
             f' End-to-end TPS: {round(end_to_end_tps):,} tx/s\n'
             f' End-to-end BPS: {round(end_to_end_bps):,} B/s\n'
