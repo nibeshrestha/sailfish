@@ -106,9 +106,8 @@ def remote(ctx, burst = 50, debug=False):
         'burst' : [burst],
     } 
 
-    precision = 20
     nodes = bench_params['nodes']
-    rate =  1000 * nodes * precision
+    rate =  1000 * nodes
     bench_params['rate'] = [rate]
 
     node_params = {
