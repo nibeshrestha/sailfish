@@ -180,11 +180,24 @@ impl Consensus {
                 #[cfg(not(feature = "benchmark"))]
                 info!("Committed {}", certificate.header);
 
+                // #[cfg(feature = "benchmark")]
+                // for digest in certificate.header.payload.keys() {
+                //     // NOTE: This log entry is used to compute performance.
+                //     info!("Committed {} -> {:?}", certificate.header, digest);
+                // }
+
                 #[cfg(feature = "benchmark")]
                 for digest in certificate.header.payload.keys() {
                     // NOTE: This log entry is used to compute performance.
-                    info!("Committed {} -> {:?}", certificate.header, digest);
+                    if certificate.header.round == leader_round {
+                        info!("Committed {} -> {:?} of round R-0 {}", certificate.header, digest, certificate.header.round);
+                    }else if certificate.header.round == leader_round-1 {
+                        info!("Committed {} -> {:?} of round R-1 {}", certificate.header, digest, certificate.header.round);
+                    }else if certificate.header.round == leader_round-2 {
+                        info!("Committed {} -> {:?} of round R-2 {}", certificate.header, digest, certificate.header.round);
+                    }
                 }
+
 
                 self.tx_primary
                     .send(certificate.clone())

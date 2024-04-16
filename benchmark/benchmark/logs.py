@@ -5,7 +5,7 @@ from multiprocessing import Pool
 from os.path import join
 from re import findall, search
 from statistics import mean
-
+import csv
 from benchmark.utils import Print
 
 
@@ -44,8 +44,12 @@ class LogParser:
                 results = p.map(self._parse_primaries, primaries)
         except (ValueError, IndexError, AttributeError) as e:
             raise ParseError(f'Failed to parse nodes\' logs: {e}')
-        proposals, commits, self.configs, primary_ips = zip(*results)
+        # proposals, commits, self.configs, primary_ip = zip(*results)
+        proposals, commits, commits_r0, commits_r1, commits_r2, self.configs, primary_ips = zip(*results)
         self.proposals = self._merge_results([x.items() for x in proposals])
+        self.commits_r0 = self._merge_results([x.items() for x in commits_r0])
+        self.commits_r1 = self._merge_results([x.items() for x in commits_r1])
+        self.commits_r2 = self._merge_results([x.items() for x in commits_r2])
         self.commits = self._merge_results([x.items() for x in commits])
 
         # Parse the workers logs.
@@ -102,6 +106,18 @@ class LogParser:
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         proposals = self._merge_results([tmp])
 
+        tmp = findall(r'\[(.*Z) .* Committed B\d+\([^ ]+\) -> ([^ ]+=) of round R-0 ', log)
+        tmp = [(d, self._to_posix(t)) for t, d in tmp]
+        commits_r0 = self._merge_results([tmp])
+
+        tmp = findall(r'\[(.*Z) .* Committed B\d+\([^ ]+\) -> ([^ ]+=) of round R-1 ', log)
+        tmp = [(d, self._to_posix(t)) for t, d in tmp]
+        commits_r1 = self._merge_results([tmp])
+
+        tmp = findall(r'\[(.*Z) .* Committed B\d+\([^ ]+\) -> ([^ ]+=) of round R-2 ', log)
+        tmp = [(d, self._to_posix(t)) for t, d in tmp]
+        commits_r2 = self._merge_results([tmp])
+
         tmp = findall(r'\[(.*Z) .* Committed B\d+\([^ ]+\) -> ([^ ]+=)', log)
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         commits = self._merge_results([tmp])
@@ -132,7 +148,8 @@ class LogParser:
 
         ip = search(r'booted on (\d+.\d+.\d+.\d+)', log).group(1)
         
-        return proposals, commits, configs, ip
+        # return proposals, commits, configs, ip
+        return proposals, commits, commits_r0, commits_r1, commits_r2, configs, ip
 
     def _parse_workers(self, log):
         if search(r'(?:panic|Error)', log) is not None:
@@ -166,24 +183,24 @@ class LogParser:
         latency = [c - self.proposals[d] for d, c in self.commits.items()]
         return mean(latency) if latency else 0
 
-    def _end_to_end_throughput(self):
-        if not self.commits:
+    def _end_to_end_throughput(self, commits):
+        if not commits:
             return 0, 0, 0
-        start, end = min(self.start), max(self.commits.values())
+        start, end = min(self.start), max(commits.values())
         duration = end - start
         bytes = sum(self.sizes.values())
         bps = bytes / duration
         tps = bps / self.size[0]
         return tps, bps, duration
 
-    def _end_to_end_latency(self):
+    def _end_to_end_latency(self, commits):
         latency = []
         for sent, received in zip(self.sent_samples, self.received_samples):
             for tx_id, batch_id in received.items():
-                if batch_id in self.commits:
+                if batch_id in commits:
                     assert tx_id in sent  # We receive txs that we sent.
                     start = sent[tx_id]
-                    end = self.commits[batch_id]
+                    end = commits[batch_id]
                     latency += [end-start]
         return mean(latency) if latency else 0
 
@@ -198,9 +215,21 @@ class LogParser:
 
         consensus_latency = self._consensus_latency() * 1_000
         consensus_tps, consensus_bps, _ = self._consensus_throughput()
-        end_to_end_tps, end_to_end_bps, duration = self._end_to_end_throughput()
-        end_to_end_latency = self._end_to_end_latency() * 1_000
+        end_to_end_tps, end_to_end_bps, duration = self._end_to_end_throughput(self.commits)
+        end_to_end_latency = self._end_to_end_latency(self.commits) * 1_000
 
+        #avg of R0
+        end_to_end_latency_r0 = self._end_to_end_latency(self.commits_r0) * 1_000
+
+        #avg of R1
+        end_to_end_latency_r1 = self._end_to_end_latency(self.commits_r1) * 1_000
+        
+        #avg of R2
+        end_to_end_latency_r2 = self._end_to_end_latency(self.commits_r2) * 1_000
+
+
+        csv_file_path = f'benchmark_{self.committee_size}_{header_size}_{batch_size}.csv'
+        write_to_csv(round(consensus_tps), round(consensus_bps), round(consensus_latency), round(end_to_end_latency_r0),round(end_to_end_latency_r1),round(end_to_end_latency_r2),round(end_to_end_tps),round(end_to_end_bps), round(end_to_end_latency),self.burst,csv_file_path)
         return (
             '\n'
             '-----------------------------------------\n'
@@ -230,6 +259,17 @@ class LogParser:
             f' Consensus BPS: {round(consensus_bps):,} B/s\n'
             f' Consensus latency: {round(consensus_latency):,} ms\n'
             '\n'
+
+            f' commits of leader round r \n'
+            f' End-to-end r0 latency: {round(end_to_end_latency_r0):,} ms\n'
+            '\n'
+            f' commits of round (r-1) \n'
+            f' End-to-end r1 latency: {round(end_to_end_latency_r1):,} ms\n'
+            '\n'
+            f' commits of round (r-2) \n'
+            f' End-to-end r2 latency: {round(end_to_end_latency_r2):,} ms\n'
+            '\n'
+
             f' End-to-end TPS: {round(end_to_end_tps):,} tx/s\n'
             f' End-to-end BPS: {round(end_to_end_bps):,} B/s\n'
             f' End-to-end latency: {round(end_to_end_latency):,} ms\n'
@@ -259,3 +299,16 @@ class LogParser:
                 workers += [f.read()]
 
         return cls(clients, primaries, workers, burst, faults=faults)
+    
+
+def write_to_csv(consensus_tps, consensus_bps, consensus_latency, r0_latency, r1_latency, r2_latency , e2e_tps, e2e_bps, e2e_latency, burst, csv_file_path):
+# Open the CSV file in append mode
+    with open(csv_file_path, mode='a', newline='') as csv_file:
+        writer = csv.writer(csv_file)
+        column_names = ['Consensus Tps', 'Consensus Bps', 'Consensus Latency', 'R Latency', 'R-1 Latency', 'R-2 Latency', 'E2E Tps' , 'E2E Bps', 'E2E Latency', 'Burst']
+        # If the file is empty, write the header
+        if csv_file.tell() == 0:
+            writer.writerow(column_names)
+
+        # Write the extracted data to the CSV file
+        writer.writerow([consensus_tps, consensus_bps, consensus_latency, r0_latency, r1_latency, r2_latency, e2e_tps, e2e_bps, e2e_latency, burst])
