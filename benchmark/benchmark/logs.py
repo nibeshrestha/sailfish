@@ -169,18 +169,18 @@ class LogParser:
         x = datetime.fromisoformat(string.replace('Z', '+00:00'))
         return datetime.timestamp(x)
 
-    def _consensus_throughput(self):
+    def _consensus_throughput(self, commits):
         if not self.commits:
             return 0, 0, 0
-        start, end = min(self.proposals.values()), max(self.commits.values())
+        start, end = min(self.proposals.values()), max(commits.values())
         duration = end - start
         bytes = sum(self.sizes.values())
         bps = bytes / duration
         tps = bps / self.size[0]
         return tps, bps, duration
 
-    def _consensus_latency(self):
-        latency = [c - self.proposals[d] for d, c in self.commits.items()]
+    def _consensus_latency(self, commits):
+        latency = [c - self.proposals[d] for d, c in commits.items()]
         return mean(latency) if latency else 0
 
     def _end_to_end_throughput(self, commits):
@@ -213,23 +213,26 @@ class LogParser:
         batch_size = self.configs[0]['batch_size']
         max_batch_delay = self.configs[0]['max_batch_delay']
 
-        consensus_latency = self._consensus_latency() * 1_000
-        consensus_tps, consensus_bps, _ = self._consensus_throughput()
+        consensus_latency = self._consensus_latency(self.commits) * 1_000
+        consensus_tps, consensus_bps, _ = self._consensus_throughput(self.commits)
         end_to_end_tps, end_to_end_bps, duration = self._end_to_end_throughput(self.commits)
         end_to_end_latency = self._end_to_end_latency(self.commits) * 1_000
 
-        #avg of R0
+        #for R0
+        consensus_latency_r0 = self._consensus_latency(self.commits_r0)*1000
         end_to_end_latency_r0 = self._end_to_end_latency(self.commits_r0) * 1_000
 
-        #avg of R1
+        #for R1
+        consensus_latency_r1 = self._consensus_latency(self.commits_r1)*1000
         end_to_end_latency_r1 = self._end_to_end_latency(self.commits_r1) * 1_000
         
-        #avg of R2
+        #for R2
+        consensus_latency_r2 = self._consensus_latency(self.commits_r2)*1000
         end_to_end_latency_r2 = self._end_to_end_latency(self.commits_r2) * 1_000
 
 
         csv_file_path = f'benchmark_{self.committee_size}_{header_size}_{batch_size}.csv'
-        write_to_csv(round(consensus_tps), round(consensus_bps), round(consensus_latency), round(end_to_end_latency_r0),round(end_to_end_latency_r1),round(end_to_end_latency_r2),round(end_to_end_tps),round(end_to_end_bps), round(end_to_end_latency),self.burst,csv_file_path)
+        write_to_csv(round(consensus_latency_r0),round(consensus_latency_r1),round(consensus_latency_r2),round(consensus_tps), round(consensus_bps), round(consensus_latency),  round(end_to_end_latency_r0),round(end_to_end_latency_r1),round(end_to_end_latency_r2),round(end_to_end_tps),round(end_to_end_bps), round(end_to_end_latency),self.burst,csv_file_path)
         return (
             '\n'
             '-----------------------------------------\n'
@@ -261,12 +264,15 @@ class LogParser:
             '\n'
 
             f' commits of leader round r \n'
+            f' Consensus latency: {round(consensus_latency_r0):,} ms\n'
             f' End-to-end r0 latency: {round(end_to_end_latency_r0):,} ms\n'
             '\n'
             f' commits of round (r-1) \n'
+            f' Consensus latency: {round(consensus_latency_r1):,} ms\n'
             f' End-to-end r1 latency: {round(end_to_end_latency_r1):,} ms\n'
             '\n'
             f' commits of round (r-2) \n'
+            f' Consensus latency: {round(consensus_latency_r2):,} ms\n'
             f' End-to-end r2 latency: {round(end_to_end_latency_r2):,} ms\n'
             '\n'
 
@@ -301,14 +307,14 @@ class LogParser:
         return cls(clients, primaries, workers, burst, faults=faults)
     
 
-def write_to_csv(consensus_tps, consensus_bps, consensus_latency, r0_latency, r1_latency, r2_latency , e2e_tps, e2e_bps, e2e_latency, burst, csv_file_path):
+def write_to_csv(con_r0_latency, con_r1_latency, con_r2_latency, consensus_tps, consensus_bps, consensus_latency, e2e_r0_latency, e2e_r1_latency, e2e_r2_latency , e2e_tps, e2e_bps, e2e_latency, burst, csv_file_path):
 # Open the CSV file in append mode
     with open(csv_file_path, mode='a', newline='') as csv_file:
         writer = csv.writer(csv_file)
-        column_names = ['Consensus Tps', 'Consensus Bps', 'Consensus Latency', 'R Latency', 'R-1 Latency', 'R-2 Latency', 'E2E Tps' , 'E2E Bps', 'E2E Latency', 'Burst']
+        column_names = ['Consensus R Latency', 'Consensus R-1 Latency', 'Consensus R-2 Latency','Consensus Tps', 'Consensus Bps', 'Consensus Latency', 'E2E R Latency', 'E2E R-1 Latency', 'E2E R-2 Latency', 'E2E Tps' , 'E2E Bps', 'E2E Latency', 'Burst']
         # If the file is empty, write the header
         if csv_file.tell() == 0:
             writer.writerow(column_names)
 
         # Write the extracted data to the CSV file
-        writer.writerow([consensus_tps, consensus_bps, consensus_latency, r0_latency, r1_latency, r2_latency, e2e_tps, e2e_bps, e2e_latency, burst])
+        writer.writerow([ con_r0_latency, con_r1_latency, con_r2_latency, consensus_tps, consensus_bps, consensus_latency, e2e_r0_latency, e2e_r1_latency, e2e_r2_latency, e2e_tps, e2e_bps, e2e_latency, burst])
