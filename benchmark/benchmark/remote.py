@@ -272,7 +272,7 @@ class Bench:
             sleep(ceil(duration / 20))
         self.kill(hosts=hosts, delete_logs=False)
 
-    def _logs(self, committee, faults):
+    def _logs(self, committee, burst, faults):
         # Delete local logs (if any).
         cmd = CommandMaker.clean_logs()
         subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
@@ -305,7 +305,7 @@ class Bench:
 
         # Parse logs and return the parser.
         Print.info('Parsing logs and computing performance...')
-        return LogParser.process(PathMaker.logs_path(), faults=faults)
+        return LogParser.process(PathMaker.logs_path(), burst, faults=faults)
 
     def run(self, bench_parameters_dict, node_parameters_dict, debug=False):
         assert isinstance(debug, bool)
@@ -345,7 +345,7 @@ class Bench:
 
             for burst in bench_parameters.burst:
                 rate = bench_parameters.rate[0]
-                Print.heading(f'\nRunning {n} nodes (input rate: {rate:,} tx/s, burst : {burst:,})')
+                Print.heading(f'\nRunning {n} nodes (input rate: {(rate*len(bench_parameters.nodes)*(int(1000/burst))):,} tx/s, burst : {burst:,})')
 
                 # Run the benchmark.
                 for i in range(bench_parameters.runs):
@@ -356,7 +356,7 @@ class Bench:
                         )
 
                         faults = bench_parameters.faults
-                        logger = self._logs(committee_copy, faults)
+                        logger = self._logs(committee_copy, burst, faults)
                         logger.print(PathMaker.result_file(
                             faults,
                             n, 

@@ -64,7 +64,7 @@ async fn main() -> Result<()> {
     info!("Transactions size: {} B", size);
 
     // NOTE: This log entry is used to compute performance.
-    info!("Transactions rate: {} tx/s", rate);
+    info!("Transactions rate: {} tx/s", rate*(1000/burst_duration));
 
     let client = Client {
         target,
