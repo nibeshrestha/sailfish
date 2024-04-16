@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
         size,
         rate,
         nodes,
-        burst_duration
+        burst_duration,
     };
 
     // Wait for all nodes to be online and synchronized.
