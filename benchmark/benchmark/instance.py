@@ -1,232 +1,192 @@
 # Copyright(C) Facebook, Inc. and its affiliates.
-import boto3
-from botocore.exceptions import ClientError
 from collections import defaultdict, OrderedDict
 from time import sleep
-
+import os
 from benchmark.utils import Print, BenchError, progress_bar
 from benchmark.settings import Settings, SettingsError
+from googleapiclient.discovery import build
+from google.cloud import compute_v1
+# from google.auth import compute_engine
+# from google.oauth2 import service_account
 
+#path to your GCP service account key json file
+# GCP_KEY_PATH = '../benchmark/benchmark/key.json'
+# SSH_PUB_KEY_PATH = '/home/webclues/.ssh/id_rsa.pub'
 
-class AWSError(Exception):
+# os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GCP_KEY_PATH
+# compute_service = build('compute', 'v1')
+
+# Set up authentication using a service account
+# credentials = service_account.Credentials.from_service_account_file(GCP_KEY_PATH)
+
+class GCPError(Exception):
     def __init__(self, error):
-        assert isinstance(error, ClientError)
-        self.message = error.response["Error"]["Message"]
-        self.code = error.response["Error"]["Code"]
+        self.message = str(error)
         super().__init__(self.message)
 
-
 class InstanceManager:
-    INSTANCE_NAME = "dag-node"
-    SECURITY_GROUP_NAME = "dag"
+    
+     #setup instance name and GCP project ID
+    INSTANCE_NAME = 'bullshark'
+    PROJECT_ID = 'supra-testnet-417213'
 
-    def __init__(self, settings):
+    
+    def __init__(self,settings):
+        self.compute_client = compute_v1.InstancesClient(credentials=credentials)
         assert isinstance(settings, Settings)
+        self.clients = {}
         self.settings = settings
-        self.clients = OrderedDict()
-        for region in settings.aws_regions:
-            self.clients[region] = boto3.client("ec2", region_name=region)
+        for zone in self.settings.zones:
+            self.clients[zone] = compute_v1.InstancesClient(credentials=credentials)
+
+
 
     @classmethod
-    def make(cls, settings_file="settings.json"):
+    def make(cls, settings_file='settings.json'):
         try:
             return cls(Settings.load(settings_file))
         except SettingsError as e:
-            raise BenchError("Failed to load settings", e)
-
-    def _get(self, state):
-        # Possible states are: 'pending', 'running', 'shutting-down',
-        # 'terminated', 'stopping', and 'stopped'.
+            raise BenchError('Failed to load settings', e)
+        
+    def _get(self):
         ids, ips = defaultdict(list), defaultdict(list)
-        for region, client in self.clients.items():
-            r = client.describe_instances(
-                Filters=[
-                    {"Name": "tag:Name", "Values": [self.INSTANCE_NAME]},
-                    {"Name": "instance-state-name", "Values": state},
-                ]
-            )
-            instances = [y for x in r["Reservations"] for y in x["Instances"]]
-            for x in instances:
-                ids[region] += [x["InstanceId"]]
-                if "PublicIpAddress" in x:
-                    ips[region] += [x["PublicIpAddress"]]
+        for zone, client in self.clients.items():
+            # Fetching instances based on state in GCP
+            res = client.list(project=self.PROJECT_ID, zone=zone)
+
+            for instance in res:
+                ids[zone] += [instance.id]
+
+                for interface in instance.network_interfaces:
+                        # Get the external IP address (if available)
+                        external_ip = None
+                        for access_config in interface.access_configs:
+                            external_ip = access_config.nat_i_p
+                            ips[zone] += [external_ip]
+        # print(f'ids : {ids},ips : {ips}')
         return ids, ips
 
-    def _wait(self, state):
-        # Possible states are: 'pending', 'running', 'shutting-down',
-        # 'terminated', 'stopping', and 'stopped'.
-        while True:
-            sleep(1)
-            ids, _ = self._get(state)
-            if sum(len(x) for x in ids.values()) == 0:
-                break
+    def _wait(self):
+        sleep(10)
+        ids, _ = self._get()
 
-    def _create_security_group(self, client):
-        client.create_security_group(
-            Description="HotStuff node",
-            GroupName=self.SECURITY_GROUP_NAME,
-        )
-
-        client.authorize_security_group_ingress(
-            GroupName=self.SECURITY_GROUP_NAME,
-            IpPermissions=[
-                {
-                    "IpProtocol": "tcp",
-                    "FromPort": 22,
-                    "ToPort": 22,
-                    "IpRanges": [
-                        {
-                            "CidrIp": "0.0.0.0/0",
-                            "Description": "Debug SSH access",
-                        }
-                    ],
-                    "Ipv6Ranges": [
-                        {
-                            "CidrIpv6": "::/0",
-                            "Description": "Debug SSH access",
-                        }
-                    ],
-                },
-                {
-                    "IpProtocol": "tcp",
-                    "FromPort": self.settings.base_port,
-                    "ToPort": self.settings.base_port + 2_000,
-                    "IpRanges": [
-                        {
-                            "CidrIp": "0.0.0.0/0",
-                            "Description": "Dag port",
-                        }
-                    ],
-                    "Ipv6Ranges": [
-                        {
-                            "CidrIpv6": "::/0",
-                            "Description": "Dag port",
-                        }
-                    ],
-                },
-            ],
-        )
-
-    def _get_ami(self, client):
-        # The AMI changes with regions.
-        response = client.describe_images(
-            Filters=[
-                {
-                    "Name": "description",
-                    "Values": [
-                        "Canonical, Ubuntu, 22.04 LTS, amd64 jammy image build on 2023-09-19"
-                    ],
-                }
-            ]
-        )
-        return response["Images"][0]["ImageId"]
+    def create_firewall_rule(self):
+        # Create a firewall rule to allow SSH access
+        ports = [x for x in range(5000, 5025)]
+        ports = [22] + ports
+        firewall_rule = {
+            "name": "allow-ports",
+            "direction": "INGRESS",
+            "priority": 1000,
+            "allowed": [{"IPProtocol": "tcp", "ports": ports}],
+            "sourceRanges": ["0.0.0.0/0"],
+        }
+        firewalls = compute_service.firewalls()
+        try:
+            result = firewalls.insert(project=self.PROJECT_ID, body=firewall_rule).execute()
+            print(result) # Wait for the request to complete
+        except Exception as e:
+            raise GCPError(e)
 
     def create_instances(self, instances):
-        assert isinstance(instances, int) and instances > 0
+        # Create instances in multiple zones
+        compute_service = build('compute', 'v1')
+        ZONES = self.settings.zones
+        machine_type = self.settings.instance_type
+        ssh_key = get_ssh_key(SSH_PUB_KEY_PATH)
+        try : 
+            for zone in ZONES:
+                for i in range(instances):
+                    config = {
+                        "name": f"{self.INSTANCE_NAME}-{zone}-{i}",
+                        "machineType": 'zones/{}/machineTypes/{}'.format(zone,machine_type),
+                        "tags": {"items": ["allow-ssh","allow-all-outbound", "allow-all-inbound","allow-ports"]},  # Tag for firewall rule
+                        "disks": [
+                            {
+                                "boot": True,
+                                "autoDelete": True,
+                                "initializeParams": {
+                                    "sourceImage": "projects/ubuntu-os-cloud/global/images/family/ubuntu-2004-lts"
+                                }
+                            }
+                        ],
+                        "networkInterfaces": [
+                            {"accessConfigs": [{"type": "ONE_TO_ONE_NAT"}]}
+                        ],
+                        'metadata': {
+                            'items': [{
+                                'key': 'ssh-keys',
+                                'value': ssh_key
+                            }]
+                        }
+                    }
 
-        # Create the security group in every region.
-        for client in self.clients.values():
-            try:
-                self._create_security_group(client)
-            except ClientError as e:
-                error = AWSError(e)
-                if error.code != "InvalidGroup.Duplicate":
-                    raise BenchError("Failed to create security group", error)
-
+                    try:
+                        request = compute_service.instances().insert(project=self.PROJECT_ID, zone=zone, body=config)
+                        response = request.execute()
+                        print('VM instance created:', response['selfLink'])
+                    except Exception as e:
+                        raise GCPError(e)
+                    
+            Print.info('Waiting for all instances to boot...')
+            self._wait()
+            Print.heading(f'Successfully created {instances * len(self.settings.zones)} new instances')
+            print(f"Successfully created {instances * len(self.settings.zones)} instances in {len(self.settings.zones)} zones.")
+        except Exception as e:
+            raise BenchError('Failed to create GCP instances {}', e)            
+        
+        
+    def delete_instances(self):
         try:
-            # Create all instances.
-            size = instances * len(self.clients)
-            progress = progress_bar(
-                self.clients.values(), prefix=f"Creating {size} instances"
-            )
-            for client in progress:
-                client.run_instances(
-                    ImageId=self._get_ami(client),
-                    InstanceType=self.settings.instance_type,
-                    KeyName=self.settings.key_name,
-                    MaxCount=instances,
-                    MinCount=instances,
-                    SecurityGroups=[self.SECURITY_GROUP_NAME],
-                    TagSpecifications=[
-                        {
-                            "ResourceType": "instance",
-                            "Tags": [{"Key": "Name", "Value": self.INSTANCE_NAME}],
-                        }
-                    ],
-                    EbsOptimized=True,
-                    BlockDeviceMappings=[
-                        {
-                            "DeviceName": "/dev/sda1",
-                            "Ebs": {
-                                "VolumeType": "gp2",
-                                "VolumeSize": 200,
-                                "DeleteOnTermination": True,
-                            },
-                        }
-                    ],
+            Print.info('Waiting for all instances to shut down...')
+            for zone, client in self.clients.items():
+                request = client.list(
+                    project=self.PROJECT_ID, zone=zone
+                )    
+                for instance in request:
+                    client.delete(
+                        project=self.PROJECT_ID, zone=zone, instance=instance.name
+                    )
+            Print.heading(f'Testbed instances destroyed')
+        except Exception as e:
+            raise GCPError(e)
+
+    def start_instances(self):
+        try:
+            for zone in self.settings.zones:
+                request = self.compute_client.list(
+                    project=self.PROJECT_ID, zone=zone
                 )
-
-            # Wait for the instances to boot.
-            Print.info("Waiting for all instances to boot...")
-            self._wait(["pending"])
-            Print.heading(f"Successfully created {size} new instances")
-        except ClientError as e:
-            raise BenchError("Failed to create AWS instances", AWSError(e))
-
-    def terminate_instances(self):
-        try:
-            ids, _ = self._get(["pending", "running", "stopping", "stopped"])
-            size = sum(len(x) for x in ids.values())
-            if size == 0:
-                Print.heading(f"All instances are shut down")
-                return
-
-            # Terminate instances.
-            for region, client in self.clients.items():
-                if ids[region]:
-                    client.terminate_instances(InstanceIds=ids[region])
-
-            # Wait for all instances to properly shut down.
-            Print.info("Waiting for all instances to shut down...")
-            self._wait(["shutting-down"])
-            for client in self.clients.values():
-                client.delete_security_group(GroupName=self.SECURITY_GROUP_NAME)
-
-            Print.heading(f"Testbed of {size} instances destroyed")
-        except ClientError as e:
-            raise BenchError("Failed to terminate instances", AWSError(e))
-
-    def start_instances(self, max):
-        size = 0
-        try:
-            ids, _ = self._get(["stopping", "stopped"])
-            for region, client in self.clients.items():
-                if ids[region]:
-                    target = ids[region]
-                    target = target if len(target) < max else target[:max]
-                    size += len(target)
-                    client.start_instances(InstanceIds=target)
-            Print.heading(f"Starting {size} instances")
-        except ClientError as e:
-            raise BenchError("Failed to start instances", AWSError(e))
+                for instance in request:
+                    self.compute_client.start(
+                        project=self.PROJECT_ID, zone=zone, instance=instance.name
+                    )
+            print("Instances started successfully.")
+        except Exception as e:
+            raise GCPError(e)
 
     def stop_instances(self):
         try:
-            ids, _ = self._get(["pending", "running"])
-            for region, client in self.clients.items():
-                if ids[region]:
-                    client.stop_instances(InstanceIds=ids[region])
-            size = sum(len(x) for x in ids.values())
-            Print.heading(f"Stopping {size} instances")
-        except ClientError as e:
-            raise BenchError(AWSError(e))
+            for zone in self.settings.zones:
+                request = self.compute_client.list(
+                    project=self.PROJECT_ID, zone=zone
+                )
+                for instance in request:
+                    self.compute_client.stop(
+                        project=self.PROJECT_ID, zone=zone, instance=instance.name
+                    )
+            print("Instances stopped successfully.")
+        except Exception as e:
+            raise GCPError(e)
 
     def hosts(self, flat=False):
         try:
-            _, ips = self._get(["pending", "running"])
+            _, ips = self._get()
             return [x for y in ips.values() for x in y] if flat else ips
-        except ClientError as e:
-            raise BenchError("Failed to gather instances IPs", AWSError(e))
+        except Exception as e:
+            raise BenchError('Failed to gather instances IPs', GCPError(e))
+
+
 
     def print_info(self):
         hosts = self.hosts()
@@ -246,3 +206,17 @@ class InstanceManager:
             f"{text}"
             "----------------------------------------------------------------\n"
         )
+
+
+#for reading ssh pub key and formating with username
+def get_ssh_key(filename):
+    with open(filename, 'r') as file:
+        ssh_key = file.read().strip()
+
+    # Split the SSH key into username and key
+    ssh_key_parts = ssh_key.split()
+    key = ssh_key_parts[1]
+    # Modify the username
+    ssh_key = f"ubuntu:ssh-rsa {key} ubuntu"
+
+    return ssh_key

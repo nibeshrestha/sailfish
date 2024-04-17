@@ -210,7 +210,7 @@ class Bench:
 
         return committee
 
-    def _run_single(self, rate, committee, bench_parameters, debug=False):
+    def _run_single(self, rate, burst, committee, bench_parameters, debug=False):
         faults = bench_parameters.faults
 
         # Kill any potentially unfinished run and delete logs.
@@ -229,6 +229,7 @@ class Bench:
                 cmd = CommandMaker.run_client(
                     address,
                     bench_parameters.tx_size,
+                    burst,
                     rate_share,
                     [x for y in workers_addresses for _, x in y]
                 )
@@ -271,7 +272,7 @@ class Bench:
             sleep(ceil(duration / 20))
         self.kill(hosts=hosts, delete_logs=False)
 
-    def _logs(self, committee, faults):
+    def _logs(self, committee, burst, faults):
         # Delete local logs (if any).
         cmd = CommandMaker.clean_logs()
         subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
@@ -304,7 +305,7 @@ class Bench:
 
         # Parse logs and return the parser.
         Print.info('Parsing logs and computing performance...')
-        return LogParser.process(PathMaker.logs_path(), faults=faults)
+        return LogParser.process(PathMaker.logs_path(), burst, faults=faults)
 
     def run(self, bench_parameters_dict, node_parameters_dict, debug=False):
         assert isinstance(debug, bool)
@@ -342,25 +343,26 @@ class Bench:
             committee_copy = deepcopy(committee)
             committee_copy.remove_nodes(committee.size() - n)
 
-            for r in bench_parameters.rate:
-                Print.heading(f'\nRunning {n} nodes (input rate: {r:,} tx/s)')
+            for burst in bench_parameters.burst:
+                rate = bench_parameters.rate[0]
+                Print.heading(f'\nRunning {n} nodes (input rate: {(rate*len(bench_parameters.nodes)*(int(1000/burst))):,} tx/s, burst : {burst:,})')
 
                 # Run the benchmark.
                 for i in range(bench_parameters.runs):
                     Print.heading(f'Run {i+1}/{bench_parameters.runs}')
                     try:
                         self._run_single(
-                            r, committee_copy, bench_parameters, debug
+                            rate, burst, committee_copy, bench_parameters, debug
                         )
 
                         faults = bench_parameters.faults
-                        logger = self._logs(committee_copy, faults)
+                        logger = self._logs(committee_copy, burst, faults)
                         logger.print(PathMaker.result_file(
                             faults,
                             n, 
                             bench_parameters.workers,
                             bench_parameters.collocate,
-                            r, 
+                            rate, 
                             bench_parameters.tx_size, 
                         ))
                     except (subprocess.SubprocessError, GroupException, ParseError) as e:

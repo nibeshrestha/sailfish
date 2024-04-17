@@ -81,6 +81,7 @@ class LocalBench:
                     cmd = CommandMaker.run_client(
                         address,
                         self.tx_size,
+                        self.burst,
                         rate_share,
                         [x for y in workers_addresses for _, x in y]
                     )

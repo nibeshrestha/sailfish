@@ -19,6 +19,7 @@ def local(ctx, debug=True):
         'rate': 50_000,
         'tx_size': 512,
         'duration': 20,
+        "burst" : 10
     }
     node_params = {
         'header_size': 50,  # bytes
@@ -37,7 +38,7 @@ def local(ctx, debug=True):
 
 
 @task
-def create(ctx, nodes=10):
+def create(ctx, nodes=1):
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
@@ -49,16 +50,16 @@ def create(ctx, nodes=10):
 def destroy(ctx):
     ''' Destroy the testbed '''
     try:
-        InstanceManager.make().terminate_instances()
+        InstanceManager.make().delete_instances()
     except BenchError as e:
         Print.error(e)
 
 
 @task
-def start(ctx, max=2):
+def start(ctx):
     ''' Start at most `max` machines per data center '''
     try:
-        InstanceManager.make().start_instances(max)
+        InstanceManager.make().start_instances()
     except BenchError as e:
         Print.error(e)
 
@@ -91,18 +92,24 @@ def install(ctx):
 
 
 @task
-def remote(ctx, debug=False):
-    ''' Run benchmarks on AWS '''
+def remote(ctx, burst = 50, debug=False):
+    ''' Run benchmarks on GCP '''
     bench_params = {
         'faults': 0,
-        'nodes': [10, 20],
+        'nodes': 5,
         'workers': 1,
         'collocate': True,
-        'rate': [10_000, 50_000],
+        'rate': [50000],
         'tx_size': 512,
-        'duration': 300,
-        'runs': 2,
-    }
+        'duration': 20,
+        'runs': 1,
+        'burst' : [burst],
+    } 
+
+    nodes = bench_params['nodes']
+    rate =  1000 * nodes
+    bench_params['rate'] = [rate]
+
     node_params = {
         'header_size': 50,  # bytes
         'max_header_delay': 5_000,  # ms

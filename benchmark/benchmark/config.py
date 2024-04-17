@@ -63,6 +63,7 @@ class Committee:
         port = base_port
         self.json = {'authorities': OrderedDict()}
         for name, hosts in addresses.items():
+            # port = base_port
             host = hosts.pop(0)
             primary_addr = {
                 'primary_to_primary': f'{host}:{port}',
@@ -216,6 +217,9 @@ class BenchParameters:
             self.duration = int(json['duration'])
 
             self.runs = int(json['runs']) if 'runs' in json else 1
+
+            self.burst = json['burst']
+            
         except KeyError as e:
             raise ConfigError(f'Malformed bench parameters: missing key {e}')
 
