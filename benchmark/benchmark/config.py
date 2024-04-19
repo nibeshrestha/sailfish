@@ -168,6 +168,16 @@ class Committee:
     def ip(address):
         assert isinstance(address, str)
         return address.split(':')[0]
+    
+    def faults(self):
+        '''Returns the total number of Byzantine authorities.'''
+        num_honest = sum([1 for a in self.json['authorities'].values() if a['is_honest']])
+        return self.size() - num_honest
+    
+    def print(self, filename):
+        assert isinstance(filename, str)
+        with open(filename, 'w') as f:
+            dump(self.json, f, indent=4, sort_keys=False)
 
 
 class LocalCommittee(Committee):
