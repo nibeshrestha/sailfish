@@ -331,7 +331,6 @@ class Bench:
     async def _run_clients(self, rate, burst, committee, bench_parameters, connections):
         Print.info('Booting clients...')
         workers_addresses = committee.workers_addresses(bench_parameters.faults)
-        adds = committee.addresses_to_wait(bench_parameters.faults)
         rate_share = ceil(rate / len(workers_addresses))
         tasks = []
         
@@ -491,7 +490,7 @@ class Bench:
         await self._gather_and_parse(tasks, 'Download Primary Logs')
 
     async def _download_client_logs(self, faults, committee, hosts_to_connections):
-        workers_addresses = committee.batch_proposer_workers_addresses(faults)
+        workers_addresses = committee.workers_addresses(faults)
         tasks = []
 
         print('Downloading client logs...')
