@@ -370,26 +370,26 @@ class Bench:
         
         await self._gather_and_parse(tasks, 'Boot Primaries')
 
-    # async def _run_workers(self, workers_addresses, connections, debug=False):
-    #     Print.info('Booting workers...')
-    #     tasks = []
+    async def _run_workers(self, workers_addresses, connections, debug=False):
+        Print.info('Booting workers...')
+        tasks = []
 
-    #     for i, addresses in enumerate(workers_addresses):
-    #         for (id, address) in addresses:
-    #             host = Committee.ip(address)
-    #             cmd = CommandMaker.run_worker(
-    #                 PathMaker.key_file(i),
-    #                 PathMaker.committee_file(),
-    #                 PathMaker.db_path(i, id),
-    #                 PathMaker.parameters_file(),
-    #                 id,  # The worker's id.
-    #                 debug=debug
-    #             )
-    #             log_file = PathMaker.worker_log_file(i, id)
-    #             connection = connections[host]
-    #             tasks.append(self._run_on_host(host, cmd, log_file, connection))
+        for i, addresses in enumerate(workers_addresses):
+            for (id, address) in addresses:
+                host = Committee.ip(address)
+                cmd = CommandMaker.run_worker(
+                    PathMaker.key_file(i),
+                    PathMaker.committee_file(),
+                    PathMaker.db_path(i, id),
+                    PathMaker.parameters_file(),
+                    id,  # The worker's id.
+                    debug=debug
+                )
+                log_file = PathMaker.worker_log_file(i, id)
+                connection = connections[host]
+                tasks.append(self._run_on_host(host, cmd, log_file, connection))
         
-    #     await self._gather_and_parse(tasks, 'Boot Workers')
+        await self._gather_and_parse(tasks, 'Boot Workers')
 
     async def _run_single(
         self, 
@@ -415,9 +415,8 @@ class Bench:
             # for the faulty nodes to be online).
             workers_addresses = await self._run_clients(
                 rate, burst, committee, bench_parameters, hosts_to_connections)
-        # if not consensus_only:
-        #     # Run the workers (except the faulty ones).
-        #     await self._run_workers(workers_addresses, hosts_to_connections, debug)
+            # Run the workers (except the faulty ones).
+            await self._run_workers(workers_addresses, hosts_to_connections, debug)
 
         # Wait for all transactions to be processed.
         duration = bench_parameters.duration
@@ -577,7 +576,7 @@ class Bench:
                         faults = bench_parameters.faults
                         await self._download_logs(consensus_only, committee=committee)
                         Print.info('Parsing logs and computing performance...')
-                        logger = LogParser.process(PathMaker.logs_path(), consensus_only=consensus_only, debug=debug)
+                        logger = LogParser.process(PathMaker.logs_path(), burst)
                         logger.print(PathMaker.result_file(
                             faults,
                             n,
