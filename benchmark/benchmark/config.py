@@ -42,7 +42,10 @@ class Committee:
         }
     '''
 
-    def __init__(self, addresses, base_port):
+    def __init__(self, json):
+        self.json = json
+
+    def address_list_to_json(addresses, base_port, faults):
         ''' The `addresses` field looks as follows:
             { 
                 "name": ["host", "host", ...],
@@ -61,10 +64,17 @@ class Committee:
         assert isinstance(base_port, int) and base_port > 1024
 
         port = base_port
-        self.json = {'authorities': OrderedDict()}
-        for name, hosts in addresses.items():
-            # port = base_port
+        json = {'authorities': OrderedDict()}
+        num_authorities = len(addresses)
+
+        for i, (name, hosts) in enumerate(addresses.items()):
+            port = base_port
             host = hosts.pop(0)
+            consensus_addr = {
+                'consensus_to_consensus': f'{host}:{port}',
+            }
+            port += 1
+
             primary_addr = {
                 'primary_to_primary': f'{host}:{port}',
                 'worker_to_primary': f'{host}:{port + 1}'
@@ -80,11 +90,19 @@ class Committee:
                 }
                 port += 3
 
-            self.json['authorities'][name] = {
+            json['authorities'][name] = {
+                # Corresponds to the determination of faulty nodes in primary_addresses.
+                'is_honest': i < num_authorities - faults,
                 'stake': 1,
+                'consensus': consensus_addr,
                 'primary': primary_addr,
                 'workers': workers_addr
             }
+        return json
+
+    @classmethod
+    def from_address_list(cls, addresses, base_port, faults):
+        return cls(Committee.address_list_to_json(addresses, base_port, faults))
 
     def primary_addresses(self, faults=0):
         ''' Returns an ordered list of primaries' addresses. '''
@@ -150,6 +168,16 @@ class Committee:
     def ip(address):
         assert isinstance(address, str)
         return address.split(':')[0]
+    
+    def faults(self):
+        '''Returns the total number of Byzantine authorities.'''
+        num_honest = sum([1 for a in self.json['authorities'].values() if a['is_honest']])
+        return self.size() - num_honest
+    
+    def print(self, filename):
+        assert isinstance(filename, str)
+        with open(filename, 'w') as f:
+            dump(self.json, f, indent=4, sort_keys=False)
 
 
 class LocalCommittee(Committee):

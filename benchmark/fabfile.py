@@ -96,12 +96,12 @@ def remote(ctx, burst = 50, debug=False):
     ''' Run benchmarks on GCP '''
     bench_params = {
         'faults': 0,
-        'nodes': 5,
+        'nodes': 10,
         'workers': 1,
         'collocate': True,
         'rate': [50000],
         'tx_size': 512,
-        'duration': 20,
+        'duration': 180,
         'runs': 1,
         'burst' : [burst],
     } 
@@ -116,7 +116,7 @@ def remote(ctx, burst = 50, debug=False):
         'gc_depth': 50,  # rounds
         'sync_retry_delay': 10_000,  # ms
         'sync_retry_nodes': 3,  # number of nodes
-        'batch_size': 500_000,  # bytes
+        'batch_size': 512_000,  # bytes
         'max_batch_delay': 200  # ms
     }
     try:
