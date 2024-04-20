@@ -6,18 +6,18 @@ from benchmark.utils import Print, BenchError, progress_bar
 from benchmark.settings import Settings, SettingsError
 from googleapiclient.discovery import build
 from google.cloud import compute_v1
-# from google.auth import compute_engine
-# from google.oauth2 import service_account
+from google.auth import compute_engine
+from google.oauth2 import service_account
 
 #path to your GCP service account key json file
-# GCP_KEY_PATH = '../benchmark/benchmark/key.json'
-# SSH_PUB_KEY_PATH = '/home/webclues/.ssh/id_rsa.pub'
+GCP_KEY_PATH = '../benchmark/benchmark/key.json'
+SSH_PUB_KEY_PATH = '/Users/nibesh/.ssh/id_rsa.pub'
 
-# os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GCP_KEY_PATH
-# compute_service = build('compute', 'v1')
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GCP_KEY_PATH
+compute_service = build('compute', 'v1')
 
 # Set up authentication using a service account
-# credentials = service_account.Credentials.from_service_account_file(GCP_KEY_PATH)
+credentials = service_account.Credentials.from_service_account_file(GCP_KEY_PATH)
 
 class GCPError(Exception):
     def __init__(self, error):

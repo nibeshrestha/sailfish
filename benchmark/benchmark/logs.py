@@ -5,7 +5,7 @@ from multiprocessing import Pool
 from os.path import join
 from re import findall, search
 from statistics import mean
-
+import csv
 from benchmark.utils import Print
 
 
@@ -14,12 +14,13 @@ class ParseError(Exception):
 
 
 class LogParser:
-    def __init__(self, clients, primaries, workers, faults=0):
+    def __init__(self, clients, primaries, workers, burst, faults=0):
         inputs = [clients, primaries, workers]
         assert all(isinstance(x, list) for x in inputs)
         assert all(isinstance(x, str) for y in inputs for x in y)
         assert all(x for x in inputs)
 
+        self.burst = burst
         self.faults = faults
         if isinstance(faults, int):
             self.committee_size = len(primaries) + int(faults)
@@ -221,6 +222,9 @@ class LogParser:
         end_to_end_tps, end_to_end_bps, duration = self._end_to_end_throughput()
         end_to_end_latency = self._end_to_end_latency() * 1_000
 
+        csv_file_path = f'benchmark_{self.committee_size}_{header_size}_{batch_size}.csv'
+        write_to_csv(round(leader_consensus_latency),round(non_leader_consensus_latency),round(consensus_tps), round(consensus_bps), round(consensus_latency),round(end_to_end_tps),round(end_to_end_bps), round(end_to_end_latency),self.burst,csv_file_path)
+
         return (
             '\n'
             '-----------------------------------------\n'
@@ -262,7 +266,7 @@ class LogParser:
             f.write(self.result())
 
     @classmethod
-    def process(cls, directory, faults=0):
+    def process(cls, directory, burst, faults=0):
         assert isinstance(directory, str)
 
         clients = []
@@ -278,4 +282,17 @@ class LogParser:
             with open(filename, 'r') as f:
                 workers += [f.read()]
 
-        return cls(clients, primaries, workers, faults=faults)
+        return cls(clients, primaries, workers, burst, faults=faults)
+
+
+def write_to_csv(con_r0_latency, con_r1_latency, consensus_tps, consensus_bps, consensus_latency, e2e_tps, e2e_bps, e2e_latency, burst, csv_file_path):
+# Open the CSV file in append mode
+    with open(csv_file_path, mode='a', newline='') as csv_file:
+        writer = csv.writer(csv_file)
+        column_names = ['Consensus R Latency', 'Consensus R-1 Latency','Consensus Tps', 'Consensus Bps', 'Consensus Latency', 'E2E Tps' , 'E2E Bps', 'E2E Latency', 'Burst']
+        # If the file is empty, write the header
+        if csv_file.tell() == 0:
+            writer.writerow(column_names)
+
+        # Write the extracted data to the CSV file
+        writer.writerow([ con_r0_latency, con_r1_latency, consensus_tps, consensus_bps, consensus_latency, e2e_tps, e2e_bps, e2e_latency, burst])
