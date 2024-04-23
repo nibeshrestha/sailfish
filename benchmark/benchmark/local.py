@@ -68,7 +68,7 @@ class LocalBench:
                 keys += [Key.from_file(filename)]
 
             names = [x.name for x in keys]
-            committee = LocalCommittee(names, self.BASE_PORT, self.workers)
+            committee = LocalCommittee(names, self.BASE_PORT, self.workers, self.bench_parameters.faults)
             committee.print(PathMaker.committee_file())
 
             self.node_parameters.print(PathMaker.parameters_file())
@@ -121,7 +121,7 @@ class LocalBench:
 
             # Parse logs and return the parser.
             Print.info('Parsing logs...')
-            return LogParser.process(PathMaker.logs_path(), faults=self.faults)
+            return LogParser.process(PathMaker.logs_path(), self.bench_parameters.burst, faults=self.faults, )
 
         except (subprocess.SubprocessError, ParseError) as e:
             self._kill_nodes()
