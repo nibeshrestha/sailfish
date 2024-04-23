@@ -77,41 +77,42 @@ class LocalBench:
             workers_addresses = committee.workers_addresses(self.faults)
             rate_share = ceil(rate / committee.workers())
             for i, addresses in enumerate(workers_addresses):
-                for (id, address) in addresses:
+                for (node_id, id, address) in addresses:
                     cmd = CommandMaker.run_client(
                         address,
                         self.tx_size,
                         self.burst,
                         rate_share,
-                        [x for y in workers_addresses for _, x in y]
+                        [x for y in workers_addresses for _,_, x in y]
                     )
-                    log_file = PathMaker.client_log_file(i, id)
+                    log_file = PathMaker.client_log_file(node_id, id)
                     self._background_run(cmd, log_file)
 
             # Run the primaries (except the faulty ones).
-            for i, address in enumerate(committee.primary_addresses(self.faults)):
+            print(committee.primary_addresses(self.faults))
+            for i, (node_id,address) in enumerate(committee.primary_addresses(self.faults)):
                 cmd = CommandMaker.run_primary(
-                    PathMaker.key_file(i),
+                    PathMaker.key_file(node_id),
                     PathMaker.committee_file(),
-                    PathMaker.db_path(i),
+                    PathMaker.db_path(node_id),
                     PathMaker.parameters_file(),
                     debug=debug
                 )
-                log_file = PathMaker.primary_log_file(i)
+                log_file = PathMaker.primary_log_file(node_id)
                 self._background_run(cmd, log_file)
 
             # Run the workers (except the faulty ones).
             for i, addresses in enumerate(workers_addresses):
-                for (id, address) in addresses:
+                for (node_id, id, address) in addresses:
                     cmd = CommandMaker.run_worker(
-                        PathMaker.key_file(i),
+                        PathMaker.key_file(node_id),
                         PathMaker.committee_file(),
-                        PathMaker.db_path(i, id),
+                        PathMaker.db_path(node_id, id),
                         PathMaker.parameters_file(),
                         id,  # The worker's id.
                         debug=debug
                     )
-                    log_file = PathMaker.worker_log_file(i, id)
+                    log_file = PathMaker.worker_log_file(node_id, id)
                     self._background_run(cmd, log_file)
 
             # Wait for all transactions to be processed.

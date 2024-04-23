@@ -335,16 +335,16 @@ class Bench:
         tasks = []
         
         for i, addresses in enumerate(workers_addresses):
-            for (id, address) in addresses:
+            for (node_id,id, address) in addresses:
                 host = Committee.ip(address)
                 cmd = CommandMaker.run_client(
                     address,
                     bench_parameters.tx_size,
                     burst,
                     rate_share,
-                    [x for y in workers_addresses for _, x in y]
+                    [x for y in workers_addresses for _,_, x in y]
                 )
-                log_file = PathMaker.client_log_file(i, int(id))
+                log_file = PathMaker.client_log_file(int(node_id), int(id))
                 connection = connections[host]
                 tasks.append(self._run_on_host(host, cmd, log_file, connection))
         
@@ -355,16 +355,16 @@ class Bench:
         Print.info('Booting primaries...')
         tasks = []
 
-        for i, address in enumerate(committee.primary_addresses(faults)):
+        for i, (node_id,address) in enumerate(committee.primary_addresses(faults)):
             host = Committee.ip(address)
             cmd = CommandMaker.run_primary(
-                PathMaker.key_file(i),
+                PathMaker.key_file(node_id),
                 PathMaker.committee_file(),
-                PathMaker.db_path(i),
+                PathMaker.db_path(node_id),
                 PathMaker.parameters_file(),
                 debug=debug
             )
-            log_file = PathMaker.primary_log_file(i)
+            log_file = PathMaker.primary_log_file(node_id)
             connection = connections[host]
             tasks.append(self._run_on_host(host, cmd, log_file, connection))
         
@@ -375,17 +375,17 @@ class Bench:
         tasks = []
 
         for i, addresses in enumerate(workers_addresses):
-            for (id, address) in addresses:
+            for (node_id, id, address) in addresses:
                 host = Committee.ip(address)
                 cmd = CommandMaker.run_worker(
-                    PathMaker.key_file(i),
+                    PathMaker.key_file(node_id),
                     PathMaker.committee_file(),
-                    PathMaker.db_path(i, id),
+                    PathMaker.db_path(node_id, id),
                     PathMaker.parameters_file(),
                     id,  # The worker's id.
                     debug=debug
                 )
-                log_file = PathMaker.worker_log_file(i, id)
+                log_file = PathMaker.worker_log_file(node_id, id)
                 connection = connections[host]
                 tasks.append(self._run_on_host(host, cmd, log_file, connection))
         
@@ -465,10 +465,10 @@ class Bench:
 
         print('Downloading workers logs...')
         for i, addresses in enumerate(workers_addresses):
-            for j, address in addresses:
+            for (node_id,id ,address) in addresses:
                 host = Committee.ip(address)
-                src = PathMaker.worker_log_file(i, int(j))
-                dest = PathMaker.worker_log_file(i, int(j))
+                src = PathMaker.worker_log_file(node_id, int(id))
+                dest = PathMaker.worker_log_file(node_id, int(id))
                 connection = hosts_to_connections[host]
                 tasks.append(self._download_log(host, connection, src, dest))
             
@@ -479,10 +479,10 @@ class Bench:
         tasks = []
 
         print('Downloading primaries logs...')
-        for i, address in enumerate(primary_addresses):
+        for i, (node_id,address) in enumerate(primary_addresses):
             host = Committee.ip(address)
-            src = PathMaker.primary_log_file(i)
-            dest = PathMaker.primary_log_file(i)
+            src = PathMaker.primary_log_file(node_id)
+            dest = PathMaker.primary_log_file(node_id)
             connection = hosts_to_connections[host]
             tasks.append(self._download_log(host, connection, src, dest))
             
@@ -494,10 +494,10 @@ class Bench:
 
         print('Downloading client logs...')
         for i, addresses in enumerate(workers_addresses):
-            for j, address in addresses:
+            for (node_id,id, address) in addresses:
                 host = Committee.ip(address)
-                src = PathMaker.client_log_file(i, int(j))
-                dest = PathMaker.client_log_file(i, int(j))
+                src = PathMaker.client_log_file(node_id, int(id))
+                dest = PathMaker.client_log_file(node_id, int(id))
                 connection = hosts_to_connections[host]
                 tasks.append(self._download_log(host, connection, src, dest))
             

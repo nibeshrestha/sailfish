@@ -66,6 +66,7 @@ class Committee:
         port = base_port
         json = {'authorities': OrderedDict()}
         num_authorities = len(addresses)
+        failure_nodes = 0
 
         for i, (name, hosts) in enumerate(addresses.items()):
             port = base_port
@@ -90,14 +91,23 @@ class Committee:
                 }
                 port += 3
 
+            if i % 2 == 0 and failure_nodes < faults:
+                is_honest = False
+                failure_nodes += 1
+            else:
+                is_honest = True
+
+
             json['authorities'][name] = {
                 # Corresponds to the determination of faulty nodes in primary_addresses.
-                'is_honest': i < num_authorities - faults,
+                "node_id" : i,
+                'is_honest': is_honest,
                 'stake': 1,
                 'consensus': consensus_addr,
                 'primary': primary_addr,
                 'workers': workers_addr
             }
+            
         return json
 
     @classmethod
@@ -108,21 +118,23 @@ class Committee:
         ''' Returns an ordered list of primaries' addresses. '''
         assert faults < self.size()
         addresses = []
-        good_nodes = self.size() - faults
-        for authority in list(self.json['authorities'].values())[:good_nodes]:
-            addresses += [authority['primary']['primary_to_primary']]
+        nodes = self.size()
+        for authority in list(self.json['authorities'].values())[:nodes]:
+            if authority['is_honest']: 
+                addresses += [(authority['node_id'],authority['primary']['primary_to_primary'])]
         return addresses
 
     def workers_addresses(self, faults=0):
         ''' Returns an ordered list of list of workers' addresses. '''
         assert faults < self.size()
         addresses = []
-        good_nodes = self.size() - faults
-        for authority in list(self.json['authorities'].values())[:good_nodes]:
-            authority_addresses = []
-            for id, worker in authority['workers'].items():
-                authority_addresses += [(id, worker['transactions'])]
-            addresses.append(authority_addresses)
+        nodes = self.size()
+        for authority in list(self.json['authorities'].values())[:nodes]:
+            if authority['is_honest']: 
+                authority_addresses = []
+                for id, worker in authority['workers'].items():
+                    authority_addresses += [(authority['node_id'],id, worker['transactions'])]
+                addresses.append(authority_addresses)
         return addresses
 
     def ips(self, name=None):

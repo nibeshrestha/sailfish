@@ -129,6 +129,7 @@ pub struct WorkerAddresses {
 
 #[derive(Clone, Deserialize)]
 pub struct Authority {
+    pub node_id : u32,
     /// The voting power of this authority.
     pub stake: Stake,
     /// The network addresses of the primary.
@@ -145,6 +146,11 @@ pub struct Committee {
 impl Import for Committee {}
 
 impl Committee {
+
+    pub fn get_node_id(&self,name: &PublicKey) -> u32 {
+        self.authorities.get(name).unwrap().node_id
+    }
+
     /// Returns the number of authorities.
     pub fn size(&self) -> usize {
         self.authorities.len()
@@ -183,8 +189,14 @@ impl Committee {
     /// Returns a leader node in a round-robin fashion.
     /// This does not have to be changed because it works for odd and even numbers.
     pub fn leader(&self, seed: usize) -> PublicKey {
-        let mut keys: Vec<_> = self.authorities.keys().cloned().collect();
-        keys.sort();
+        let mut sorted_keys: Vec<_> = self.authorities
+        .iter()
+        .map(|(pubkey, authority)| (authority.node_id, pubkey.clone()))
+        .collect();
+
+        sorted_keys.sort_by_key(|&(node_id, _)| node_id);
+
+        let keys: Vec<_> = sorted_keys.into_iter().map(|(_, key)| key).collect();
         keys[seed % self.size()]
     }
 
