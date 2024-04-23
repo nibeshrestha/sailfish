@@ -536,7 +536,7 @@ class Bench:
             traceback.print_exc()
             raise BenchError('Failed to configure nodes', e)
         
-        names = names[:len(names) - bench_parameters.faults]
+        names = names[:len(names)]
         msg = f'Uploading configuration files'
         if update:
             msg += f' and changing repository {self.settings.repo_name} to branch {self.settings.branch}'
@@ -559,11 +559,10 @@ class Bench:
         # Run benchmarks.
         for n in bench_parameters.nodes:
             committee_copy = deepcopy(committee)
-            committee_copy.remove_nodes(committee.size() - n)
 
             for burst in bench_parameters.burst:
                 rate = bench_parameters.rate[0]
-                Print.heading(f'\nRunning {n} nodes (input rate: {rate:,} tx/s, burst : {burst:,})')
+                Print.heading(f'\nRunning {n} nodes (input rate: {round(rate*(1000/burst)):,} tx/s, burst : {burst:,})')
 
                 # Run the benchmark.
                 for i in range(bench_parameters.runs):
@@ -576,7 +575,7 @@ class Bench:
                         faults = bench_parameters.faults
                         await self._download_logs(consensus_only, committee=committee)
                         Print.info('Parsing logs and computing performance...')
-                        logger = LogParser.process(PathMaker.logs_path(), burst)
+                        logger = LogParser.process(PathMaker.logs_path(), burst, faults)
                         logger.print(PathMaker.result_file(
                             faults,
                             n,
