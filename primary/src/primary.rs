@@ -107,6 +107,8 @@ impl Primary {
             name, address
         );
 
+        info!("node id : {}", committee.get_node_id(&name));
+
         // Spawn the network receiver listening to messages from our workers.
         let mut address = committee
             .primary(&name)
