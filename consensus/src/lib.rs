@@ -196,6 +196,9 @@ impl Consensus {
                     }else if certificate.header.round == leader_round-2 {
                         info!("Committed {} -> {:?} of round R-2 {}", certificate.header, digest, certificate.header.round);
                     }
+                    else{
+                        info!("Committed {} -> {:?}", certificate.header, digest);
+                    }
                 }
 
 
