@@ -109,11 +109,11 @@ class LogParser:
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         commits = self._merge_results([tmp])
 
-        tmp = findall(r'\[(.*Z) .* Committed Leader B\d+\([^ ]+\) -> ([^ ]+=)', log)
+        tmp = findall(r'\[(.*Z) .* Committed B\d+\([^ ]+\) -> ([^ ]+=) Leader', log)
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         leader_commits = self._merge_results([tmp])
 
-        tmp = findall(r'\[(.*Z) .* Committed NonLeader B\d+\([^ ]+\) -> ([^ ]+=)', log)
+        tmp = findall(r'\[(.*Z) .* Committed B\d+\([^ ]+\) -> ([^ ]+=) NonLeader', log)
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         non_leader_commits = self._merge_results([tmp])
 
