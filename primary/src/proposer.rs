@@ -127,7 +127,7 @@ impl Proposer {
     fn enough_votes(&self) -> bool {
         let leader = match &self.last_leader {
             Some(x) => x.digest(),
-            None => return true,
+            None => return false,
         };
 
         let mut votes_for_leader = 0;

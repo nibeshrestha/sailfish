@@ -190,17 +190,24 @@ impl Consensus {
                 for digest in certificate.header.payload.keys() {
                     // NOTE: This log entry is used to compute performance.
                     if certificate.header.round == leader_round {
-                        info!("Committed {} -> {:?} of round R-0 {}", certificate.header, digest, certificate.header.round);
-                    }else if certificate.header.round == leader_round-1 {
-                        info!("Committed {} -> {:?} of round R-1 {}", certificate.header, digest, certificate.header.round);
-                    }else if certificate.header.round == leader_round-2 {
-                        info!("Committed {} -> {:?} of round R-2 {}", certificate.header, digest, certificate.header.round);
-                    }
-                    else{
+                        info!(
+                            "Committed {} -> {:?} of round R-0 {}",
+                            certificate.header, digest, certificate.header.round
+                        );
+                    } else if certificate.header.round == leader_round - 1 {
+                        info!(
+                            "Committed {} -> {:?} of round R-1 {}",
+                            certificate.header, digest, certificate.header.round
+                        );
+                    } else if certificate.header.round == leader_round - 2 {
+                        info!(
+                            "Committed {} -> {:?} of round R-2 {}",
+                            certificate.header, digest, certificate.header.round
+                        );
+                    } else {
                         info!("Committed {} -> {:?}", certificate.header, digest);
                     }
                 }
-
 
                 self.tx_primary
                     .send(certificate.clone())
