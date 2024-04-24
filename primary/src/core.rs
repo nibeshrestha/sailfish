@@ -223,9 +223,9 @@ impl Core {
     async fn process_header(&mut self, header: &Header) -> DagResult<()> {
         debug!("Processing {:?}", header);
         // Send header to consensus
-        self.tx_consensus_header.send(header.clone())
-            .await
-            .expect("Failed to send header to consensus");
+        // self.tx_consensus_header.send(header.clone())
+        //     .await
+        //     .expect("Failed to send header to consensus");
         // Indicate that we are processing this header.
         self.processing
             .entry(header.round)
