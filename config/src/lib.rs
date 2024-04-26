@@ -195,7 +195,7 @@ impl Committee {
         sorted_keys.sort_by_key(|&(node_id, _)| node_id);
 
         let keys: Vec<_> = sorted_keys.into_iter().map(|(_, key)| key).collect();
-        keys[seed % self.size()]
+        keys[(seed+1) % self.size()]
     }
 
     /// Returns the primary addresses of the target primary.
