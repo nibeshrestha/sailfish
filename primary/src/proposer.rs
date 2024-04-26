@@ -125,9 +125,14 @@ impl Proposer {
     /// Check whether if we have (i) 2f+1 votes for the leader, (ii) f+1 nodes not voting for the leader,
     /// or (iii) there is no leader to vote for.
     fn enough_votes(&self) -> bool {
+        let committee_size = self.committee.size() as u64;
+        let f = (committee_size -1)/3;
+        if (self.round % committee_size) < 2*f  {
+            return false;
+        }
         let leader = match &self.last_leader {
             Some(x) => x.digest(),
-            None => return false,
+            None => return true,
         };
 
         let mut votes_for_leader = 0;
