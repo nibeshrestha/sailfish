@@ -120,9 +120,12 @@ impl Consensus {
 
             // Try to order the dag to commit. Start from the previous round and check if it is a leader round.
             let r = round - 1;
+            
+            let committee_size = self.committee.size() as u64;
+            let f = (committee_size -1)/3;
 
             // We only elect leaders for even round numbers.
-            if r % 2 != 0 || r < 2 {
+            if r % 2 != 0 || r % committee_size < 2*f {
                 continue;
             }
 
