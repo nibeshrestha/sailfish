@@ -1,7 +1,7 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::messages::{Certificate, Header, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert};
 use crate::primary::Round;
-use config::{Committee, WorkerId};
+use config::{Committee, Parameters, WorkerId};
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey, SignatureService};
 #[cfg(feature = "benchmark")]
@@ -48,7 +48,7 @@ pub struct Proposer {
     /// Holds the certificates' ids waiting to be included in the next header.
     last_parents: Vec<Certificate>,
     /// Holds the certificate of the last leader (if any).
-    last_leader: Option<Certificate>,
+    last_leaders: Vec<Option<Certificate>>,
     /// Holds the batches' digests waiting to be included in the next header.
     digests: Vec<(Digest, WorkerId)>,
     /// Keeps track of the size (in bytes) of batches' digests that we received so far.
@@ -57,6 +57,7 @@ pub struct Proposer {
     last_timeout_cert: TimeoutCert,
     /// Holds the latest No Vote Certificate received.
     last_no_vote_cert: NoVoteCert,
+    parameters : Parameters,
 }
 
 impl Proposer {
@@ -74,6 +75,7 @@ impl Proposer {
         rx_timeout_cert: Receiver<(TimeoutCert, Round)>,
         tx_core_no_vote_msg: Sender<NoVoteMsg>,
         rx_no_vote_cert: Receiver<(NoVoteCert, Round)>,
+        parameters : Parameters,
     ) {
         let genesis = Certificate::genesis(&committee);
         tokio::spawn(async move {
@@ -92,11 +94,12 @@ impl Proposer {
                 rx_no_vote_cert,
                 round: 0,
                 last_parents: genesis,
-                last_leader: None,
+                last_leaders: vec![None;parameters.leaders_per_round],
                 digests: Vec::with_capacity(2 * header_size),
                 payload_size: 0,
                 last_timeout_cert: TimeoutCert:: new(0),
                 last_no_vote_cert: NoVoteCert:: new(0),
+                parameters,
             }
             .run()
             .await;
@@ -176,19 +179,22 @@ impl Proposer {
     }
 
     /// Update the last leader.
-    fn update_leader(&mut self) -> bool {
-        let leader_name = self.committee.leader(self.round as usize);
-        self.last_leader = self
+    fn update_leaders(&mut self) -> bool {
+
+        let leaders_name = self.committee.leader_list(&self.parameters,self.round as usize);
+        for i in 0..self.parameters.leaders_per_round {
+            self.last_leaders[i] = self
             .last_parents
             .iter()
-            .find(|x| x.origin() == leader_name)
+            .find(|x| x.origin() == leaders_name[i])
             .cloned();
 
-        if let Some(leader) = self.last_leader.as_ref() {
-            debug!("Got leader {} for round {}", leader.origin(), self.round);
+            if let Some(leader) = self.last_leaders[i].as_ref() {
+                debug!("Got leader {} for round {}", leader.origin(), self.round);
+            }
         }
-
-        self.last_leader.is_some()
+        
+        check_last_leaders(&self.last_leaders)
     }
 
     /// Main loop listening to incoming messages.
@@ -222,7 +228,7 @@ impl Proposer {
 
             if ((timer_expired && timeout_cert_gathered && (!is_next_leader || no_vote_cert_gathered)) || (enough_digests && advance)) && enough_parents {
                 
-                if timer_expired && self.last_leader.is_none() && !is_next_leader {
+                if timer_expired && !check_last_leaders(&self.last_leaders) && !is_next_leader {
                     self.make_no_vote_msg().await;
                 }
 
@@ -264,7 +270,7 @@ impl Proposer {
                     // we ignore this check and advance anyway.
                     // TODO: (1) Implement the wait for NVC if leader logic here
                     // (2) Also implement the wait for leader idea what is was there before
-                    advance = self.update_leader();
+                    advance = self.update_leaders();
                 }
                 Some((digest, worker_id)) = self.rx_workers.recv() => {
                     self.payload_size += digest.size();
@@ -311,5 +317,21 @@ impl Proposer {
                 }
             }
         }
+    }
+}
+
+fn check_last_leaders(last_leaders : &Vec<Option<Certificate>>) -> bool {
+
+    let mut x = 0;
+    for leader in last_leaders {
+        if leader.is_some(){
+            x+=1;
+        }
+    }
+
+    if x == last_leaders.len() {
+        true
+    }else{
+        false
     }
 }
