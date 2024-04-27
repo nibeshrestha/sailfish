@@ -135,7 +135,7 @@ impl Consensus {
                     //iterate thorugh all the leaders of the round
                     for i in 0..self.parameters.leaders_per_round {
 
-                        let leader_and_digest_list : Vec<_> = self.leader_list(&self.parameters,leader_round, &state.dag);
+                        let leader_and_digest_list : Vec<_> = self.leader_list(&self.parameters, leader_round, &state.dag);
                         let (leader_digest, leader) = match leader_and_digest_list[i] {
                             Some(x) => x,
                             None => continue,
@@ -155,6 +155,7 @@ impl Consensus {
                             let mut sequence = Vec::new();
                             for leader in self.order_leaders(leader, &state).iter().rev() {
                                 // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
+                                debug!("Committing leader {:?}  iter: {}", leader, i);
                                 for x in self.order_dag(leader, &state) {
                                     // Update and clean up internal state.
                                     state.update(&x, self.gc_depth);
@@ -205,7 +206,7 @@ impl Consensus {
                             }
                         }else {
                             //this breaks the loop from the point it gets false for threshold of any leader's certificate
-                            info!("quorum failed, exiting loop without processing next all leaders from here");
+                            info!("quorum failed iter {}, exiting loop without processing next all leaders from here", i);
                             break;
                         }
                     }
