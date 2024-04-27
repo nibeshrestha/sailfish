@@ -151,7 +151,7 @@ impl Consensus {
                         // Commit if we have QT
                         if current_stake_value >= self.committee.quorum_threshold() {
                             // Get an ordered list of past leaders that are linked to the current leader.
-                            debug!("Leader {:?} has enough support with header", leader);
+                            debug!("Leader {:?} has enough support with header at round {}", leader, leader_round);
                             let mut sequence = Vec::new();
                             for leader in self.order_leaders(leader, &state).iter().rev() {
                                 // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
@@ -350,7 +350,7 @@ impl Consensus {
         let seed = round;
 
         // get the leaders list.
-        let leader_list:Vec<PublicKey> = self.committee.leader_list(param,seed as usize);
+        let leader_list:Vec<PublicKey> = self.committee.leader_list(param.leaders_per_round, seed as usize);
 
         let mut output : Vec<Option<&'a (Digest, Certificate)>> = Vec::new();
         for leader in leader_list {

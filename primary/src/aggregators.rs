@@ -3,6 +3,7 @@ use crate::error::{DagError, DagResult};
 use crate::messages::{Certificate, Header, Timeout, TimeoutCert, Vote, NoVoteMsg, NoVoteCert};
 use config::{Committee, Stake};
 use crypto::{PublicKey, Signature};
+use log::debug;
 use std::collections::HashSet;
 
 /// Aggregates votes for a particular header into a certificate.
@@ -73,8 +74,16 @@ impl CertificatesAggregator {
             return Ok(None);
         }
 
-        self.certificates.push(certificate);
+        self.certificates.push(certificate.clone());
         self.weight += committee.stake(&origin);
+
+        let leaders = committee.leader_list(2, certificate.round() as usize);
+        for leader in leaders.iter() {
+            if !self.used.contains(leader){
+                return Ok(None);
+            }
+        }
+        debug!("Got all leader for round {}", certificate.round());
         if self.weight >= committee.quorum_threshold() {
             //self.weight = 0; // Ensures quorum is only reached once.
             return Ok(Some(self.certificates.drain(..).collect()));

@@ -181,7 +181,7 @@ impl Proposer {
     /// Update the last leader.
     fn update_leaders(&mut self) -> bool {
 
-        let leaders_name = self.committee.leader_list(&self.parameters,self.round as usize);
+        let leaders_name = self.committee.leader_list(self.parameters.leaders_per_round,self.round as usize);
         for i in 0..self.parameters.leaders_per_round {
             self.last_leaders[i] = self
             .last_parents
@@ -215,7 +215,7 @@ impl Proposer {
             let enough_parents = !self.last_parents.is_empty();
             let timeout_cert_gathered = self.last_timeout_cert.round == self.round;
             let is_next_leader = self.committee.leader((self.round + 1) as usize) == self.name;
-            let no_vote_cert_gathered = self.last_no_vote_cert.round == self.round;
+            // let no_vote_cert_gathered = self.last_no_vote_cert.round == self.round;
             let enough_digests = self.payload_size >= self.header_size;
             let timer_expired = timer.is_elapsed();
 
@@ -226,7 +226,7 @@ impl Proposer {
                 timeout_sent = true;
             }
 
-            if ((timer_expired && timeout_cert_gathered && (!is_next_leader || no_vote_cert_gathered)) || (enough_digests && advance)) && enough_parents {
+            if ((timer_expired && timeout_cert_gathered) || (enough_digests && advance)) && enough_parents {
                 
                 if timer_expired && !check_last_leaders(&self.last_leaders) && !is_next_leader {
                     self.make_no_vote_msg().await;
@@ -235,7 +235,7 @@ impl Proposer {
                 // Advance to the next round.
                 self.round += 1;
                 debug!("Dag moved to round {}", self.round);
-
+                
                 // Make a new header.
                 self.make_header().await;
                 self.payload_size = 0;

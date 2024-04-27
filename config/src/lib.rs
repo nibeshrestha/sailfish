@@ -93,7 +93,7 @@ impl Default for Parameters {
             sync_retry_nodes: 3,
             batch_size: 500_000,
             max_batch_delay: 100,
-            leaders_per_round : 5,
+            leaders_per_round : 2,
         }
     }
 }
@@ -193,11 +193,11 @@ impl Committee {
     }
 
     /// Returns a list of n leader nodes in a round-robin fashion.
-    pub fn leader_list(&self, param: &Parameters, seed: usize) -> Vec<PublicKey> {
+    pub fn leader_list(&self, leaders_per_round: usize, seed: usize) -> Vec<PublicKey> {
         let mut keys: Vec<_> = self.authorities.keys().cloned().collect();
         keys.sort();
         let mut leaders : Vec <PublicKey> = Vec::new();
-        for i in 0..param.leaders_per_round {
+        for i in 0..leaders_per_round {
             leaders.push(keys[(seed+i)%self.size()]);
         }
         leaders
