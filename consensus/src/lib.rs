@@ -206,7 +206,8 @@ impl Consensus {
                             }
                         }else {
                             //this breaks the loop from the point it gets false for threshold of any leader's certificate
-                            info!("quorum failed iter {}, exiting loop without processing next all leaders from here", i);
+                            
+                            info!("quorum failed at round {}, exiting loop without processing next leaders from here {}", r, i);
                             break;
                         }
                     }
