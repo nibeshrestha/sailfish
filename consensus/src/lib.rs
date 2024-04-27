@@ -112,6 +112,8 @@ impl Consensus {
     async fn run(&mut self) {
         // The consensus state (everything else is immutable).
         let mut state = State::new(self.genesis.clone());
+        let committee_size = self.committee.size() as u64;
+        let f = (committee_size -1)/3;
 
         // Listen to incoming certificates and header quorums.
         loop {
@@ -209,6 +211,10 @@ impl Consensus {
         
                     // Try to order the dag to commit. Start from the previous round and check if it is a leader round.
                     let r = round - 1;
+
+                    if (r % committee_size) < 2*f {
+                        continue;
+                    }
         
                     // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
                     let leader_round = r;
