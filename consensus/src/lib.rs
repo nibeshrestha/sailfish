@@ -138,7 +138,7 @@ impl Consensus {
                         let leader_and_digest_list : Vec<_> = self.leader_list(&self.parameters, leader_round, &state.dag);
                         let (leader_digest, leader) = match leader_and_digest_list[i] {
                             Some(x) => x,
-                            None => continue,
+                            None => break,
                         };
     
                         if header.parents.contains(leader_digest) {
