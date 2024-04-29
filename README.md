@@ -1,11 +1,6 @@
 # Sailfish
 
-[![build status](https://img.shields.io/github/actions/workflow/status/asonnino/narwhal/rust.yml?branch=bullshark&logo=github&style=flat-square)](https://github.com/asonnino/narwhal/actions)
-[![rustc](https://img.shields.io/badge/rustc-1.51+-blue?style=flat-square&logo=rust)](https://www.rust-lang.org)
-[![python](https://img.shields.io/badge/python-3.9-blue?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/release/python-390/)
-[![license](https://img.shields.io/badge/license-Apache-blue.svg?style=flat-square)](LICENSE)
-
-This repo provides an implementation of [Sailfish](https://eprint.iacr.org/2024/472.pdf). The core consensus logic of Bullshark is modified to obtain Sailfish. The codebase has been designed to be small, efficient, and easy to benchmark and modify. It has not been designed to run in production but uses real cryptography ([dalek](https://doc.dalek.rs/ed25519_dalek)), networking ([tokio](https://docs.rs/tokio)), and storage ([rocksdb](https://docs.rs/rocksdb)).
+This repo provides an implementation of Sailfish. The core consensus logic of Bullshark is modified to obtain Sailfish. The codebase has been designed to be small, efficient, and easy to benchmark and modify. It has not been designed to run in production but uses real cryptography ([dalek](https://doc.dalek.rs/ed25519_dalek)), networking ([tokio](https://docs.rs/tokio)), and storage ([rocksdb](https://docs.rs/rocksdb)).
 
 ## Quick Start
 
@@ -60,9 +55,9 @@ This command may take a long time the first time you run it (compiling rust code
 
 ## Next Steps
 
-The next step is to read the paper [Sailfish](https://eprint.iacr.org/2024/472.pdf). It is then recommended to have a look at the README files of the [worker](https://github.com/asonnino/narwhal/tree/bullshark/worker) and [primary](https://github.com/asonnino/narwhal/tree/bullshark/primary) crates. 
+The next step is to read the paper Sailfish. It is then recommended to have a look at the README files of the [worker](https://github.com/asonnino/narwhal/tree/bullshark/worker) and [primary](https://github.com/asonnino/narwhal/tree/bullshark/primary) crates. 
 
-The README file of the [benchmark folder](https://github.com/nibeshrestha/benchmark) explains how to benchmark the codebase and read benchmarks' results. It also provides a step-by-step tutorial to run benchmarks on [Amazon Web Services (AWS)](https://aws.amazon.com) accross multiple data centers (WAN).
+The README file of the benchmark folder explains how to benchmark the codebase and read benchmarks' results. It also provides a step-by-step tutorial to run benchmarks on [Amazon Web Services (AWS)](https://aws.amazon.com) accross multiple data centers (WAN).
 
 ## License
 
