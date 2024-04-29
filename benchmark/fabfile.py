@@ -16,20 +16,21 @@ def local(ctx, debug=True):
         'faults': 0,
         'nodes': 10,
         'workers': 1,
-        'rate': 10_000,
+        'rate': 13_000,
         'tx_size': 512,
-        'duration': 20,
-        "burst" : 100
+        'duration': 60,
+        "burst" : 100,
+        'leaders_per_round' : 1
     }
     node_params = {
         'header_size': 50,  # bytes
-        'max_header_delay': 1_000,  # ms
+        'max_header_delay': 3_000,  # ms
         'gc_depth': 50,  # rounds
         'sync_retry_delay': 10_000,  # ms
         'sync_retry_nodes': 3,  # number of nodes
         'batch_size': 512_000,  # bytes
         'max_batch_delay': 200,  # ms
-        'leaders_per_round' : 5
+        'leaders_per_round' : 1
     }
     try:
         ret = LocalBench(bench_params, node_params).run(debug)
@@ -39,7 +40,7 @@ def local(ctx, debug=True):
 
 
 @task
-def create(ctx, nodes=1):
+def create(ctx, nodes=4):
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
@@ -95,9 +96,11 @@ def install(ctx):
 @task
 def remote(ctx, burst = 50, debug=False):
     ''' Run benchmarks on GCP '''
+    leaders_per_round = 32
+
     bench_params = {
         'faults': 0,
-        'nodes': 10,
+        'nodes': 50,
         'workers': 1,
         'collocate': True,
         'rate': [50000],
@@ -105,6 +108,7 @@ def remote(ctx, burst = 50, debug=False):
         'duration': 180,
         'runs': 1,
         'burst' : [burst],
+        'leaders_per_round' : leaders_per_round
     } 
 
     nodes = bench_params['nodes']
@@ -113,12 +117,13 @@ def remote(ctx, burst = 50, debug=False):
 
     node_params = {
         'header_size': 50,  # bytes
-        'max_header_delay': 5_000,  # ms
+        'max_header_delay': 3_000,  # ms
         'gc_depth': 50,  # rounds
         'sync_retry_delay': 10_000,  # ms
         'sync_retry_nodes': 3,  # number of nodes
         'batch_size': 512_000,  # bytes
-        'max_batch_delay': 200  # ms
+        'max_batch_delay': 200,  # ms
+        'leaders_per_round' : leaders_per_round
     }
     try:
         Bench(ctx).run(bench_params, node_params, debug)

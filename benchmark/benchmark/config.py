@@ -249,6 +249,8 @@ class BenchParameters:
             self.runs = int(json['runs']) if 'runs' in json else 1
 
             self.burst = json['burst']
+
+            self.leaders_per_round = json['leaders_per_round']
             
         except KeyError as e:
             raise ConfigError(f'Malformed bench parameters: missing key {e}')

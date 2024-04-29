@@ -14,7 +14,7 @@ class ParseError(Exception):
 
 
 class LogParser:
-    def __init__(self, clients, primaries, workers, burst, faults=0):
+    def __init__(self, clients, primaries, workers, burst, faults=0, leaders_per_round=1):
         inputs = [clients, primaries, workers]
         assert all(isinstance(x, list) for x in inputs)
         assert all(isinstance(x, str) for y in inputs for x in y)
@@ -28,6 +28,8 @@ class LogParser:
         else:
             self.committee_size = '?'
             self.workers = '?'
+
+        self.leaders_per_round = leaders_per_round
 
         # Parse the clients logs.
         try:
@@ -222,7 +224,7 @@ class LogParser:
         end_to_end_tps, end_to_end_bps, duration = self._end_to_end_throughput()
         end_to_end_latency = self._end_to_end_latency() * 1_000
 
-        csv_file_path = f'benchmark_{self.committee_size}_{header_size}_{batch_size}.csv'
+        csv_file_path = f'benchmark_{self.committee_size}_{header_size}_{batch_size}_{self.leaders_per_round}.csv'
         write_to_csv(round(leader_consensus_latency),round(non_leader_consensus_latency),round(consensus_tps), round(consensus_bps), round(consensus_latency),round(end_to_end_tps),round(end_to_end_bps), round(end_to_end_latency),self.burst,csv_file_path)
 
         return (
@@ -266,7 +268,7 @@ class LogParser:
             f.write(self.result())
 
     @classmethod
-    def process(cls, directory, burst, faults=0):
+    def process(cls, directory, burst, faults=0, leaders_per_round=1):
         assert isinstance(directory, str)
 
         clients = []
@@ -282,7 +284,7 @@ class LogParser:
             with open(filename, 'r') as f:
                 workers += [f.read()]
 
-        return cls(clients, primaries, workers, burst, faults=faults)
+        return cls(clients, primaries, workers, burst, faults=faults, leaders_per_round=leaders_per_round)
 
 
 def write_to_csv(con_r0_latency, con_r1_latency, consensus_tps, consensus_bps, consensus_latency, e2e_tps, e2e_bps, e2e_latency, burst, csv_file_path):
