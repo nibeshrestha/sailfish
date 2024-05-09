@@ -82,6 +82,8 @@ pub struct Consensus {
     genesis: Vec<Certificate>,
     /// The stake vote received by the leader of a round.
     stake_vote: HashMap<Round, u32>,
+    /// The stake vote received by the sub leaders of a round.
+    sub_leaders_stake_vote: HashMap<Round, HashMap<PublicKey, u32>>,
 }
 
 impl Consensus {
@@ -103,10 +105,105 @@ impl Consensus {
                 tx_output,
                 genesis: Certificate::genesis(&committee),
                 stake_vote: HashMap::with_capacity(2 * gc_depth as usize),
+                sub_leaders_stake_vote: HashMap::with_capacity(2 * gc_depth as usize),
             }
             .run()
             .await;
         });
+    }
+
+    fn update_sub_leaders(&mut self, dag: &Dag, round: Round, header: &Header) -> Vec<Certificate> {
+        // Number of leaders might be dynamic, consider parameterizing it if necessary
+        // TODO: Change this to input
+        let num_leaders = 3;
+        let current_leaders = self.committee.sub_leaders(round as usize, num_leaders);
+        let mut commitable_leaders = Vec::new();
+        let mut push_to_leaders = true;
+    
+        // Safely access the DAG and update stakes based on valid leader digests in header parents.
+        if let Some(round_entries) = dag.get(&round) {
+            for leader in current_leaders {
+                if let Some((leader_digest, _cert)) = round_entries.get(&leader) {
+                    if header.parents.contains(leader_digest) {
+                        let stake = self.committee.stake(&header.author);
+                        let stake_entry = self.sub_leaders_stake_vote.entry(round).or_default().entry(leader).or_insert(0);
+                        *stake_entry += stake;
+
+                        // Check if the updated stake meets the quorum threshold
+                        if *stake_entry >= self.committee.quorum_threshold() && push_to_leaders {
+                            commitable_leaders.push(_cert.clone());
+                        } else {
+                            push_to_leaders = false;
+                        }
+                    }
+                }
+            }
+        }
+        commitable_leaders
+    }
+
+    fn update_sub_leaders_post_commit(&mut self, dag: &Dag, round: Round, header: &Header) -> Vec<Certificate> {
+        // Number of leaders might be dynamic, consider parameterizing it if necessary
+        // TODO: Change this to input
+        let num_leaders = 3;
+        let current_leaders = self.committee.sub_leaders(round as usize, num_leaders);
+        let mut commitable_leaders = Vec::new();
+        let mut push_to_leaders = true;
+    
+        // Safely access the DAG and update stakes based on valid leader digests in header parents.
+        if let Some(round_entries) = dag.get(&round) {
+            for leader in current_leaders {
+                if let Some((leader_digest, _cert)) = round_entries.get(&leader) {
+                    let stake_entry = self.sub_leaders_stake_vote.entry(round).or_default().entry(leader).or_insert(0);
+
+                    if header.parents.contains(leader_digest) && *stake_entry < self.committee.quorum_threshold() {
+                        let stake = self.committee.stake(&header.author);
+                        *stake_entry += stake;
+
+                        // Check if the updated stake meets the quorum threshold
+                        if *stake_entry >= self.committee.quorum_threshold() && push_to_leaders {
+                            commitable_leaders.push(_cert.clone());
+                        } else {
+                            push_to_leaders = false;
+                        }
+                    }
+                }
+            }
+        }
+        commitable_leaders
+    }
+
+    fn prev_commitable_leaders(&self, round: Round, dag: &Dag, certificate: &Certificate) -> Vec<Certificate> {
+        // TODO Take as arg
+        let num_leaders = 3;
+        // Retrieve the current leaders
+        let current_leaders = self.committee.sub_leaders(round as usize, num_leaders);
+        
+        // Initialize a vector to store the valid certificates
+        let mut valid_certificates = Vec::new();
+        
+        // Iterate through the current leaders
+        for leader in current_leaders {
+            if let Some((_, leader_cert)) = dag.get(&round)
+                .and_then(|x| x.get(&leader).map(|(digest, cert)| (digest.clone(), cert.clone())))
+            {
+                // Check if the leader is linked with the previous leader
+                if self.linked(&leader_cert, &certificate, dag) {
+                // If linked, add the certificate to the valid certificates vector
+                valid_certificates.push(leader_cert);
+                }
+            }
+        }
+        
+        valid_certificates
+    }
+
+    fn is_leader(&self, round: Round, public_key: PublicKey) -> bool {
+        // TODO Take as arg
+        let num_leaders = 3;
+
+        let current_leaders = self.committee.sub_leaders(round as usize, num_leaders);
+        current_leaders.contains(&public_key) || self.committee.leader(round as usize) == public_key
     }
 
     async fn run(&mut self) {
@@ -125,9 +222,51 @@ impl Consensus {
 
                     // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
                     let leader_round = r;
-                    if leader_round <= state.last_committed_round {
+                    if leader_round < state.last_committed_round || leader_round == 0 {
                         continue;
                     }
+                    info!("CRAYZ {} {}", leader_round, state.last_committed_round);
+
+                    if leader_round == state.last_committed_round {
+                        let commitable_leaders = self.update_sub_leaders_post_commit(&state.dag, leader_round, &header);
+
+                        let mut sequence = Vec::new();
+
+                        for leader in commitable_leaders {
+                            // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
+                            for x in self.order_dag(&leader, &state) {
+                                // Update and clean up internal state.
+                                state.update(&x, self.gc_depth);
+            
+                                // Add the certificate to the sequence.
+                                sequence.push(x);
+                            }
+                        }
+
+                        // Output the sequence in the right order.
+                        for certificate in sequence {
+                            #[cfg(not(feature = "benchmark"))]
+                            info!("Committed {} with header", certificate.header);
+            
+                            #[cfg(feature = "benchmark")]
+                            for digest in certificate.header.payload.keys() {
+                                // NOTE: This log entry is used to compute performance.
+                                info!("Committed Leader {} -> {:?}", certificate.header, digest);
+                            }
+            
+                            self.tx_primary
+                                .send(certificate.clone())
+                                .await
+                                .expect("Failed to send certificate to primary with header");
+            
+                            if let Err(e) = self.tx_output.send(certificate).await {
+                                warn!("Failed to output certificate: {} with header", e);
+                            }
+                        }
+
+                        continue;
+                    }
+
                     let (leader_digest, leader) = match self.leader(leader_round, &state.dag) {
                         Some(x) => x,
                         None => continue,
@@ -136,18 +275,31 @@ impl Consensus {
                     if header.parents.contains(leader_digest) {
                         *self.stake_vote.entry(header.round).or_insert(0) += self.committee.stake(&header.author);
                     }
+                    let commitable_leaders = self.update_sub_leaders(&state.dag, leader_round, &header);
 
                     let current_stake = self.stake_vote.get(&header.round);
                     let current_stake_value = *current_stake.unwrap_or(&0);
 
                     // Commit if we have QT
                     if current_stake_value >= self.committee.quorum_threshold() {
+                        // Try committing sub leaders
                         // Get an ordered list of past leaders that are linked to the current leader.
                         debug!("Leader {:?} has enough support with header", leader);
                         let mut sequence = Vec::new();
                         for leader in self.order_leaders(leader, &state).iter().rev() {
                             // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
                             for x in self.order_dag(leader, &state) {
+                                // Update and clean up internal state.
+                                state.update(&x, self.gc_depth);
+            
+                                // Add the certificate to the sequence.
+                                sequence.push(x);
+                            }
+                        }
+
+                        for leader in commitable_leaders {
+                            // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
+                            for x in self.order_dag(&leader, &state) {
                                 // Update and clean up internal state.
                                 state.update(&x, self.gc_depth);
             
@@ -172,14 +324,9 @@ impl Consensus {
                             for digest in certificate.header.payload.keys() {
                                 // NOTE: This log entry is used to compute performance.
                                 info!("Committed {} -> {:?}", certificate.header, digest);
-                                // if certificate.header.author == self.committee.leader(certificate.header.round as usize) {
-                                //     info!("Committed Leader {} -> {:?}", certificate.header, digest);
-                                // } else {
-                                //     info!("Committed NonLeader {} -> {:?}", certificate.header, digest);
-                                // }
-                                if certificate.header.round == leader_round {
+                                if self.is_leader(certificate.round(), certificate.origin()) {
                                     info!("Committed Leader {} -> {:?}", certificate.header, digest);
-                                }else if certificate.header.round == leader_round-1 {
+                                } else {
                                     info!("Committed NonLeader {} -> {:?}", certificate.header, digest);
                                 }
                             }
@@ -199,6 +346,7 @@ impl Consensus {
                 Some(certificate) = self.rx_primary.recv() => {
                     debug!("Processing {:?}", certificate);
                     let round = certificate.round();
+                    let header = certificate.header();
         
                     // Add the new certificate to the local storage.
                     state
@@ -212,9 +360,50 @@ impl Consensus {
         
                     // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
                     let leader_round = r;
-                    if leader_round <= state.last_committed_round {
+                    if leader_round < state.last_committed_round || leader_round == 0 {
                         continue;
                     }
+
+                    if leader_round == state.last_committed_round {
+                        let commitable_leaders = self.update_sub_leaders_post_commit(&state.dag, leader_round, &header);
+
+                        let mut sequence = Vec::new();
+
+                        for leader in commitable_leaders {
+                            // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
+                            for x in self.order_dag(&leader, &state) {
+                                // Update and clean up internal state.
+                                state.update(&x, self.gc_depth);
+            
+                                // Add the certificate to the sequence.
+                                sequence.push(x);
+                            }
+                        }
+
+                        // Output the sequence in the right order.
+                        for certificate in sequence {
+                            #[cfg(not(feature = "benchmark"))]
+                            info!("Committed {} with header", certificate.header);
+            
+                            #[cfg(feature = "benchmark")]
+                            for digest in certificate.header.payload.keys() {
+                                // NOTE: This log entry is used to compute performance.
+                                info!("Committed Leader {} -> {:?}", certificate.header, digest);
+                            }
+            
+                            self.tx_primary
+                                .send(certificate.clone())
+                                .await
+                                .expect("Failed to send certificate to primary with header");
+            
+                            if let Err(e) = self.tx_output.send(certificate).await {
+                                warn!("Failed to output certificate: {} with header", e);
+                            }
+                        }
+
+                        continue;
+                    }
+
                     let (leader_digest, leader) = match self.leader(leader_round, &state.dag) {
                         Some(x) => x,
                         None => continue,
@@ -238,12 +427,25 @@ impl Consensus {
                         continue;
                     }
         
+                    let commitable_leaders = self.update_sub_leaders(&state.dag, leader_round, &header);
+
                     // Get an ordered list of past leaders that are linked to the current leader.
                     debug!("Leader {:?} has enough support", leader);
                     let mut sequence = Vec::new();
                     for leader in self.order_leaders(leader, &state).iter().rev() {
                         // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
                         for x in self.order_dag(leader, &state) {
+                            // Update and clean up internal state.
+                            state.update(&x, self.gc_depth);
+        
+                            // Add the certificate to the sequence.
+                            sequence.push(x);
+                        }
+                    }
+
+                    for leader in commitable_leaders {
+                        // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
+                        for x in self.order_dag(&leader, &state) {
                             // Update and clean up internal state.
                             state.update(&x, self.gc_depth);
         
@@ -273,9 +475,9 @@ impl Consensus {
                             // } else {
                             //     info!("Committed NonLeader {} -> {:?}", certificate.header, digest);
                             // }
-                            if certificate.header.round == leader_round {
+                            if self.is_leader(certificate.round(), certificate.origin()) {
                                 info!("Committed Leader {} -> {:?}", certificate.header, digest);
-                            }else if certificate.header.round == leader_round-1 {
+                            } else {
                                 info!("Committed NonLeader {} -> {:?}", certificate.header, digest);
                             }
                         }
@@ -315,20 +517,15 @@ impl Consensus {
     /// Order the past leaders that we didn't already commit.
     fn order_leaders(&self, leader: &Certificate, state: &State) -> Vec<Certificate> {
         let mut to_commit = vec![leader.clone()];
-        let mut leader = leader;
+        let leader = leader;
         for r in (state.last_committed_round + 1..=leader.round() - 1)
             .rev()
         {
-            // Get the certificate proposed by the previous leader.
-            let (_, prev_leader) = match self.leader(r, &state.dag) {
-                Some(x) => x,
-                None => continue,
-            };
+            let prev_leaders = self.prev_commitable_leaders(r, &state.dag, leader);
 
-            // Check whether there is a path between the last two leaders.
-            if self.linked(leader, prev_leader, &state.dag) {
+            // Push all previous leaders in reverse order
+            for prev_leader in prev_leaders.iter().rev() {
                 to_commit.push(prev_leader.clone());
-                leader = prev_leader;
             }
         }
         to_commit

@@ -56,7 +56,7 @@ pub struct Proposer {
     /// Holds the Timeout certificate for the latest round.
     last_timeout_cert: TimeoutCert,
     /// Holds the latest No Vote Certificate received.
-    last_no_vote_cert: NoVoteCert,
+    last_no_vote_cert: Vec<NoVoteCert>,
 }
 
 impl Proposer {
@@ -96,7 +96,8 @@ impl Proposer {
                 digests: Vec::with_capacity(2 * header_size),
                 payload_size: 0,
                 last_timeout_cert: TimeoutCert:: new(0),
-                last_no_vote_cert: NoVoteCert:: new(0),
+                // TODO: This has to be an input based on number of leaders
+                last_no_vote_cert: Vec::with_capacity(3),
             }
             .run()
             .await;
@@ -119,9 +120,10 @@ impl Proposer {
             .expect("Failed to send timeout");
     }
 
-    async fn make_no_vote_msg(&mut self) {
+    async fn make_no_vote_msg(&mut self, leader: PublicKey) {
         let no_vote_msg = NoVoteMsg::new(
             self.round,
+            leader,
             self.name,
             &mut self.signature_service,
         ).await;
@@ -144,18 +146,19 @@ impl Proposer {
             TimeoutCert::new(0) // Assuming TimeoutCert::new creates an empty certificate
         };
 
-        let no_vote_cert = if self.committee.leader((self.round) as usize) == self.name && self.last_no_vote_cert.round == self.round - 1 {
+        let no_vote_certs = if self.committee.leader((self.round) as usize) == self.name && self.last_no_vote_cert.len() > 0 && self.last_no_vote_cert[0].round == self.round - 1 {
             self.last_no_vote_cert.clone()
         } else {
-            NoVoteCert::new(0) // Assuming NoVoteCert::new creates an empty certificate
+            Vec::new()
         };
+
         let header = Header::new(
             self.name,
             self.round,
             self.digests.drain(..).collect(),
             self.last_parents.drain(..).map(|x| x.digest()).collect(),
             timeout_cert,
-            no_vote_cert,
+            no_vote_certs,
             &mut self.signature_service,
         )
         .await;
@@ -191,6 +194,22 @@ impl Proposer {
         self.last_leader.is_some()
     }
 
+    fn nvm_leaders(&mut self) -> Vec<PublicKey> {
+        let current_leaders = self.committee.sub_leaders(self.round as usize, 3);
+        
+        // Extract authors from the last leaders' certificates
+        let last_leader_authors: Vec<_> = self.last_parents.iter().map(|cert| &cert.header.author).collect();
+    
+        // Filter out the public keys that are in current_leaders but not in last_leader_authors
+        let nvm_leaders: Vec<_> = current_leaders
+            .iter()
+            .filter(|&key| !last_leader_authors.contains(&key))
+            .cloned()
+            .collect();
+    
+        nvm_leaders
+    }
+
     /// Main loop listening to incoming messages.
     pub async fn run(&mut self) {
         debug!("Dag starting at round {}", self.round);
@@ -209,7 +228,7 @@ impl Proposer {
             let enough_parents = !self.last_parents.is_empty();
             let timeout_cert_gathered = self.last_timeout_cert.round == self.round;
             let is_next_leader = self.committee.leader((self.round + 1) as usize) == self.name;
-            let no_vote_cert_gathered = self.last_no_vote_cert.round == self.round;
+            let no_vote_cert_gathered = self.last_no_vote_cert.len() > 0 && self.last_no_vote_cert[0].round == self.round;
             let enough_digests = self.payload_size >= self.header_size;
             let timer_expired = timer.is_elapsed();
 
@@ -221,10 +240,17 @@ impl Proposer {
             }
 
             if ((timer_expired && timeout_cert_gathered && (!is_next_leader || no_vote_cert_gathered)) || (enough_digests && advance)) && enough_parents {
+                let nvm_leaders = self.nvm_leaders();
+                for pub_key in nvm_leaders {
+                    debug!("ROHAN NVM LEADERS {}",pub_key);
+                    self.make_no_vote_msg(pub_key).await;
+                }
                 
                 if timer_expired && self.last_leader.is_none() && !is_next_leader {
-                    self.make_no_vote_msg().await;
+                    // TODO: Loop over all non existing leaders
+                    self.make_no_vote_msg(self.committee.leader((self.round) as usize).clone()).await;
                 }
+                // TODO: Even if timer hasn't expired send NVM for leaders that don't exist
 
                 // Advance to the next round.
                 self.round += 1;
@@ -289,12 +315,16 @@ impl Proposer {
                     }
                 }
                 Some((no_vote_cert, round)) = self.rx_no_vote_cert.recv() => {
-                    match round.cmp(&self.last_no_vote_cert.round) {
+                    let last_nvc_round = if self.last_no_vote_cert.len() > 0 {
+                        self.last_no_vote_cert[0].round
+                    } else {
+                        0
+                    };
+                    match round.cmp(&last_nvc_round) {
                         Ordering::Greater => {
                             // We accept round bigger than our current round to jump ahead in case we were
                             // late (or just joined the network).
-                            self.last_no_vote_cert = no_vote_cert;
-
+                            self.last_no_vote_cert = vec![no_vote_cert];
                             // TODO: How do we react?
                         },
                         Ordering::Less => {
@@ -302,7 +332,7 @@ impl Proposer {
                         },
                         Ordering::Equal => {
                             // TODO: Here we have to create header and include the timeout certificate in the header?
-                            self.last_no_vote_cert = no_vote_cert;
+                            self.last_no_vote_cert.push(no_vote_cert);
                         }
                     }
                 }

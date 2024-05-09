@@ -188,6 +188,25 @@ impl Committee {
         keys[seed % self.size()]
     }
 
+    /// Returns a sub leader nodes in a round-robin fashion.
+    pub fn sub_leaders(&self, seed: usize, num_leaders: usize) -> Vec<PublicKey> {
+        let mut keys: Vec<_> = self.authorities.keys().cloned().collect();
+        keys.sort();
+    
+        // Find the index of the seed in the sorted keys vector
+        let seed_index = seed % self.size();
+    
+        // Collect the subsequent num_leader-1 pubKeys in the sorted array from the seed
+        let mut sub_leaders = Vec::with_capacity(num_leaders - 1);
+        for i in 1..num_leaders {
+            let index = (seed_index + i) % self.size(); // Wrap around if needed
+            sub_leaders.push(keys[index].clone());
+        }
+    
+        sub_leaders
+    }
+    
+
     /// Returns the primary addresses of the target primary.
     pub fn primary(&self, to: &PublicKey) -> Result<PrimaryAddresses, ConfigError> {
         self.authorities
