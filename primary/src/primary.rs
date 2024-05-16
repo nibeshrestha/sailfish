@@ -68,6 +68,7 @@ impl Primary {
         tx_consensus: Sender<Certificate>,
         rx_consensus: Receiver<Certificate>,
         tx_consensus_header: Sender<Header>,
+        leaders_per_round: usize,
     ) {
         let (tx_others_digests, rx_others_digests) = channel(CHANNEL_CAPACITY);
         let (tx_our_digests, rx_our_digests) = channel(CHANNEL_CAPACITY);
@@ -211,6 +212,7 @@ impl Primary {
             rx_timeout_cert,
             tx_no_vote_msg,
             rx_no_vote_cert,
+            leaders_per_round
         );
 
         // The `Helper` is dedicated to reply to certificates requests from other primaries.

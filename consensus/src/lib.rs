@@ -84,6 +84,8 @@ pub struct Consensus {
     stake_vote: HashMap<Round, u32>,
     /// The stake vote received by the sub leaders of a round.
     sub_leaders_stake_vote: HashMap<Round, HashMap<PublicKey, u32>>,
+    ///The total numbers of leaders in each round
+    leaders_per_round : usize,
 }
 
 impl Consensus {
@@ -94,6 +96,8 @@ impl Consensus {
         rx_primary_header: Receiver<Header>,
         tx_primary: Sender<Certificate>,
         tx_output: Sender<Certificate>,
+        leaders_per_round: usize,
+        
     ) {
         tokio::spawn(async move {
             Self {
@@ -106,6 +110,7 @@ impl Consensus {
                 genesis: Certificate::genesis(&committee),
                 stake_vote: HashMap::with_capacity(2 * gc_depth as usize),
                 sub_leaders_stake_vote: HashMap::with_capacity(2 * gc_depth as usize),
+                leaders_per_round
             }
             .run()
             .await;
@@ -115,7 +120,7 @@ impl Consensus {
     fn update_sub_leaders(&mut self, dag: &Dag, round: Round, header: &Header) -> Vec<Certificate> {
         // Number of leaders might be dynamic, consider parameterizing it if necessary
         // TODO: Change this to input
-        let num_leaders = 3;
+        let num_leaders = self.leaders_per_round;
         let current_leaders = self.committee.sub_leaders(round as usize, num_leaders);
         let mut commitable_leaders = Vec::new();
         let mut push_to_leaders = true;
@@ -145,7 +150,7 @@ impl Consensus {
     fn update_sub_leaders_post_commit(&mut self, dag: &Dag, round: Round, header: &Header) -> Vec<Certificate> {
         // Number of leaders might be dynamic, consider parameterizing it if necessary
         // TODO: Change this to input
-        let num_leaders = 3;
+        let num_leaders = self.leaders_per_round;
         let current_leaders = self.committee.sub_leaders(round as usize, num_leaders);
         let mut commitable_leaders = Vec::new();
         let mut push_to_leaders = true;
@@ -175,7 +180,7 @@ impl Consensus {
 
     fn prev_commitable_leaders(&self, round: Round, dag: &Dag, certificate: &Certificate) -> Vec<Certificate> {
         // TODO Take as arg
-        let num_leaders = 3;
+        let num_leaders = self.leaders_per_round;
         // Retrieve the current leaders
         let current_leaders = self.committee.sub_leaders(round as usize, num_leaders);
         
@@ -200,7 +205,7 @@ impl Consensus {
 
     fn is_leader(&self, round: Round, public_key: PublicKey) -> bool {
         // TODO Take as arg
-        let num_leaders = 3;
+        let num_leaders = self.leaders_per_round;
 
         let current_leaders = self.committee.sub_leaders(round as usize, num_leaders);
         current_leaders.contains(&public_key) || self.committee.leader(round as usize) == public_key

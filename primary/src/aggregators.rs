@@ -72,12 +72,17 @@ impl CertificatesAggregator {
         if !self.used.insert(origin) {
             return Ok(None);
         }
+        if self.weight >= committee.quorum_threshold() {
+            //self.weight = 0; // Ensures quorum is only reached once.
+            return Ok(Some(vec![certificate]));
+        }
 
         self.certificates.push(certificate);
+        
         self.weight += committee.stake(&origin);
         if self.weight >= committee.quorum_threshold() {
             //self.weight = 0; // Ensures quorum is only reached once.
-            return Ok(Some(self.certificates.drain(..).collect()));
+            return Ok(Some(self.certificates.clone()));
         }
         Ok(None)
     }

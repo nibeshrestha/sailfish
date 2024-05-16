@@ -57,6 +57,8 @@ pub struct Proposer {
     last_timeout_cert: TimeoutCert,
     /// Holds the latest No Vote Certificate received.
     last_no_vote_cert: Vec<NoVoteCert>,
+    ///The total numbers of leaders in each round
+    leaders_per_round : usize,
 }
 
 impl Proposer {
@@ -74,6 +76,7 @@ impl Proposer {
         rx_timeout_cert: Receiver<(TimeoutCert, Round)>,
         tx_core_no_vote_msg: Sender<NoVoteMsg>,
         rx_no_vote_cert: Receiver<(NoVoteCert, Round)>,
+        leaders_per_round: usize,
     ) {
         let genesis = Certificate::genesis(&committee);
         tokio::spawn(async move {
@@ -97,7 +100,8 @@ impl Proposer {
                 payload_size: 0,
                 last_timeout_cert: TimeoutCert:: new(0),
                 // TODO: This has to be an input based on number of leaders
-                last_no_vote_cert: Vec::with_capacity(3),
+                last_no_vote_cert: Vec::with_capacity(leaders_per_round),
+                leaders_per_round,
             }
             .run()
             .await;
@@ -195,7 +199,7 @@ impl Proposer {
     }
 
     fn nvm_leaders(&mut self) -> Vec<PublicKey> {
-        let current_leaders = self.committee.sub_leaders(self.round as usize, 3);
+        let current_leaders = self.committee.sub_leaders(self.round as usize, self.leaders_per_round);
         
         // Extract authors from the last leaders' certificates
         let last_leader_authors: Vec<_> = self.last_parents.iter().map(|cert| &cert.header.author).collect();

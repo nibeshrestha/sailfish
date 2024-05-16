@@ -106,6 +106,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
                 /* tx_consensus */ tx_new_certificates,
                 /* rx_consensus */ rx_feedback,
                 tx_consensus_header,
+                parameters.leaders_per_round,
             );
             Consensus::spawn(
                 committee,
@@ -114,6 +115,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
                 rx_consensus_header,
                 /* tx_primary */ tx_feedback,
                 tx_output,
+                parameters.leaders_per_round
             );
         }
 

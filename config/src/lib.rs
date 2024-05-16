@@ -79,6 +79,8 @@ pub struct Parameters {
     /// The delay after which the workers seal a batch of transactions, even if `max_batch_size`
     /// is not reached. Denominated in ms.
     pub max_batch_delay: u64,
+    ///The total numbers of leaders in each round
+    pub leaders_per_round : usize,
 }
 
 impl Default for Parameters {
@@ -91,6 +93,7 @@ impl Default for Parameters {
             sync_retry_nodes: 3,
             batch_size: 500_000,
             max_batch_delay: 100,
+            leaders_per_round : 5,
         }
     }
 }
@@ -106,6 +109,7 @@ impl Parameters {
         info!("Sync retry nodes set to {} nodes", self.sync_retry_nodes);
         info!("Batch size set to {} B", self.batch_size);
         info!("Max batch delay set to {} ms", self.max_batch_delay);
+        info!("Leaders per round set to {}", self.leaders_per_round);
     }
 }
 
