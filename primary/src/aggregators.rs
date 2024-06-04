@@ -35,8 +35,8 @@ impl VotesAggregator {
         self.votes.push((author, vote.signature));
         self.weight += committee.stake(&author);
 
-        //to check if we have received vote from the previous round leader
-        let leader = committee.leader((vote.round as usize)-1);
+        //to check if we have received vote from the current round leader
+        let leader = committee.leader(vote.round as usize);
         if !self.used.contains(&leader){
             return Ok(None);
         }
