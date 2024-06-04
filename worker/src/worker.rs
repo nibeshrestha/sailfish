@@ -137,7 +137,7 @@ impl Worker {
     /// Spawn all tasks responsible to handle clients transactions.
     fn handle_clients_transactions(&self, tx_primary: Sender<SerializedBatchDigestMessage>) {
         let (tx_batch_maker, rx_batch_maker) = channel(CHANNEL_CAPACITY);
-        let (tx_quorum_waiter, rx_quorum_waiter) = channel(CHANNEL_CAPACITY);
+        // let (tx_quorum_waiter, rx_quorum_waiter) = channel(CHANNEL_CAPACITY);
         let (tx_processor, rx_processor) = channel(CHANNEL_CAPACITY);
 
         // We first receive clients' transactions from the network.
@@ -159,7 +159,7 @@ impl Worker {
             self.parameters.batch_size,
             self.parameters.max_batch_delay,
             /* rx_transaction */ rx_batch_maker,
-            /* tx_message */ tx_quorum_waiter,
+            /* tx_message */ tx_processor,
             /* workers_addresses */
             self.committee
                 .others_workers(&self.name, &self.id)
@@ -168,14 +168,14 @@ impl Worker {
                 .collect(),
         );
 
-        // The `QuorumWaiter` waits for 2f authorities to acknowledge reception of the batch. It then forwards
-        // the batch to the `Processor`.
-        QuorumWaiter::spawn(
-            self.committee.clone(),
-            /* stake */ self.committee.stake(&self.name),
-            /* rx_message */ rx_quorum_waiter,
-            /* tx_batch */ tx_processor,
-        );
+        // // The `QuorumWaiter` waits for 2f authorities to acknowledge reception of the batch. It then forwards
+        // // the batch to the `Processor`.
+        // QuorumWaiter::spawn(
+        //     self.committee.clone(),
+        //     /* stake */ self.committee.stake(&self.name),
+        //     /* rx_message */ rx_quorum_waiter,
+        //     /* tx_batch */ tx_processor,
+        // );
 
         // The `Processor` hashes and stores the batch. It then forwards the batch's digest to the `PrimaryConnector`
         // that will send it to our primary machine.

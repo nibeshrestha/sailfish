@@ -64,12 +64,11 @@ pub struct Core {
     gc_round: Round,
     /// The authors of the last voted headers.
     last_voted: HashMap<Round, HashSet<PublicKey>>,
-    /// The set of headers we are currently processing.
-    processing: HashMap<Round, HashSet<Digest>>,
-    /// The last header we proposed (for which we are waiting votes).
-    current_header: Header,
-    /// Aggregates votes into a certificate.
-    votes_aggregator: VotesAggregator,
+    // /// The set of headers we are currently processing.
+    // processing: HashMap<Round, HashSet<Digest>>,
+    /// Active set of headers we are currenting waiting for votes
+    processing_headers: HashMap<Digest, Header>,
+    processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
     /// Aggregates certificates to use as parents for new headers.
     certificates_aggregators: HashMap<Round, Box<CertificatesAggregator>>,
     /// A network sender to send the batches to the other workers.
@@ -126,9 +125,9 @@ impl Core {
                 tx_consensus_header,
                 gc_round: 0,
                 last_voted: HashMap::with_capacity(2 * gc_depth as usize),
-                processing: HashMap::with_capacity(2 * gc_depth as usize),
-                current_header: Header::default(),
-                votes_aggregator: VotesAggregator::new(),
+                // processing: HashMap::with_capacity(2 * gc_depth as usize),
+                processing_headers: HashMap::new(),
+                processing_vote_aggregators: HashMap::new(),
                 certificates_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 network: ReliableSender::new(),
                 cancel_handlers: HashMap::with_capacity(2 * gc_depth as usize),
@@ -197,8 +196,12 @@ impl Core {
 
     async fn process_own_header(&mut self, header: Header) -> DagResult<()> {
         // Reset the votes aggregator.
-        self.current_header = header.clone();
-        self.votes_aggregator = VotesAggregator::new();
+        self.processing_headers
+            .entry(header.id.clone())
+            .or_insert(header.clone());
+        self.processing_vote_aggregators
+            .entry(header.id.clone())
+            .or_insert(VotesAggregator::new());
 
         // Broadcast the new header in a reliable manner.
         let addresses = self
@@ -227,10 +230,9 @@ impl Core {
             .await
             .expect("Failed to send header to consensus");
         // Indicate that we are processing this header.
-        self.processing
-            .entry(header.round)
-            .or_insert_with(HashSet::new)
-            .insert(header.id.clone());
+        self.processing_headers
+            .entry(header.id.clone())
+            .or_insert(header.clone());
 
         // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
         // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
@@ -282,7 +284,7 @@ impl Core {
             .or_insert_with(HashSet::new)
             .insert(header.author)
         {
-            // Make a vote and send it to the header's creator.
+            // Make a vote and send it to all nodes.
             let vote = Vote::new(header, &self.name, &mut self.signature_service).await;
             debug!("Created {:?}", vote);
             if vote.origin == self.name {
@@ -290,18 +292,19 @@ impl Core {
                     .await
                     .expect("Failed to process our own vote");
             } else {
-                let address = self
+                let addresses = self
                     .committee
-                    .primary(&header.author)
-                    .expect("Author of valid header is not in the committee")
-                    .primary_to_primary;
+                    .others_primaries(&self.name)
+                    .iter()
+                    .map(|(_, x)| x.primary_to_primary)
+                    .collect();
                 let bytes = bincode::serialize(&PrimaryMessage::Vote(vote))
                     .expect("Failed to serialize our own vote");
-                let handler = self.network.send(address, Bytes::from(bytes)).await;
+                let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
                 self.cancel_handlers
                     .entry(header.round)
                     .or_insert_with(Vec::new)
-                    .push(handler);
+                    .extend(handlers);
             }
         }
         Ok(())
@@ -369,33 +372,39 @@ impl Core {
     async fn process_vote(&mut self, vote: Vote) -> DagResult<()> {
         debug!("Processing {:?}", vote);
 
-        // Add it to the votes' aggregator and try to make a new certificate.
-        if let Some(certificate) =
-            self.votes_aggregator
-                .append(vote, &self.committee, &self.current_header)?
-        {
-            debug!("Assembled {:?}", certificate);
+        if let (Some(header), Some(vote_aggregator)) = (
+            self.processing_headers.get(&vote.id),
+            self.processing_vote_aggregators.get_mut(&vote.id),
+        ) {
+            // Add it to the votes' aggregator and try to make a new certificate.
+            if let Some(certificate) =
+            vote_aggregator
+                .append(vote, &self.committee, header)?
+            {
+                debug!("Assembled {:?}", certificate);
 
-            // Broadcast the certificate.
-            let addresses = self
-                .committee
-                .others_primaries(&self.name)
-                .iter()
-                .map(|(_, x)| x.primary_to_primary)
-                .collect();
-            let bytes = bincode::serialize(&PrimaryMessage::Certificate(certificate.clone()))
-                .expect("Failed to serialize our own certificate");
-            let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
-            self.cancel_handlers
-                .entry(certificate.round())
-                .or_insert_with(Vec::new)
-                .extend(handlers);
+                // Broadcast the certificate.
+                let addresses = self
+                    .committee
+                    .others_primaries(&self.name)
+                    .iter()
+                    .map(|(_, x)| x.primary_to_primary)
+                    .collect();
+                let bytes = bincode::serialize(&PrimaryMessage::Certificate(certificate.clone()))
+                    .expect("Failed to serialize our own certificate");
+                let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
+                self.cancel_handlers
+                    .entry(certificate.round())
+                    .or_insert_with(Vec::new)
+                    .extend(handlers);
 
-            // Process the new certificate.
-            self.process_certificate(certificate)
-                .await
-                .expect("Failed to process valid certificate");
+                // Process the new certificate.
+                self.process_certificate(certificate)
+                    .await
+                    .expect("Failed to process valid certificate");
+            }
         }
+        
         Ok(())
     }
 
@@ -408,9 +417,8 @@ impl Core {
         // the data it refers to (ie. its payload and its parents) are available. We can thus continue the
         // processing of the certificate even if we don't have them in store right now.
         if !self
-            .processing
-            .get(&certificate.header.round)
-            .map_or_else(|| false, |x| x.contains(&certificate.header.id))
+            .processing_headers
+            .get(&certificate.header.id).is_some()
         {
             // This function may still throw an error if the storage fails.
             self.process_header(&certificate.header).await?;
@@ -452,6 +460,10 @@ impl Core {
                 id, e
             );
         }
+
+        self.processing_headers.remove(&id);
+        self.processing_vote_aggregators.remove(&id);
+        
         Ok(())
     }
 
@@ -494,19 +506,21 @@ impl Core {
     }
 
     fn sanitize_vote(&mut self, vote: &Vote) -> DagResult<()> {
-        ensure!(
-            self.current_header.round <= vote.round,
-            DagError::TooOld(vote.digest(), vote.round)
-        );
-
-        // Ensure we receive a vote on the expected header.
-        ensure!(
-            vote.id == self.current_header.id
-                && vote.origin == self.current_header.author
-                && vote.round == self.current_header.round,
-            DagError::UnexpectedVote(vote.id.clone())
-        );
-
+        
+        if let Some(header) = self.processing_headers.get(&vote.id) {
+            ensure!(
+                header.round <= vote.round,
+                DagError::TooOld(vote.digest(), vote.round)
+            );
+    
+            // Ensure we receive a vote on the expected header.
+            ensure!(
+                vote.id == header.id
+                    && vote.origin == header.author
+                    && vote.round == header.round,
+                DagError::UnexpectedVote(vote.id.clone())
+            );
+        }
         // Verify the vote.
         vote.verify(&self.committee).map_err(DagError::from)
     }
@@ -596,7 +610,7 @@ impl Core {
             if round > self.gc_depth {
                 let gc_round = round - self.gc_depth;
                 self.last_voted.retain(|k, _| k >= &gc_round);
-                self.processing.retain(|k, _| k >= &gc_round);
+                self.processing_headers.retain(|_, h| &h.round >= &gc_round);
                 self.certificates_aggregators.retain(|k, _| k >= &gc_round);
                 self.cancel_handlers.retain(|k, _| k >= &gc_round);
                 self.gc_round = gc_round;

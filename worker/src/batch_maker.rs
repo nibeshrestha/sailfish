@@ -10,6 +10,7 @@ use ed25519_dalek::{Digest as _, Sha512};
 #[cfg(feature = "benchmark")]
 use log::info;
 use network::ReliableSender;
+use network::CancelHandler;
 #[cfg(feature = "benchmark")]
 use std::convert::TryInto as _;
 use std::net::SocketAddr;
@@ -32,7 +33,7 @@ pub struct BatchMaker {
     /// Channel to receive transactions from the network.
     rx_transaction: Receiver<Transaction>,
     /// Output channel to deliver sealed batches to the `QuorumWaiter`.
-    tx_message: Sender<QuorumWaiterMessage>,
+    tx_message: Sender<Vec<u8>>,
     /// The network addresses of the other workers that share our worker id.
     workers_addresses: Vec<(PublicKey, SocketAddr)>,
     /// Holds the current batch.
@@ -48,7 +49,7 @@ impl BatchMaker {
         batch_size: usize,
         max_batch_delay: u64,
         rx_transaction: Receiver<Transaction>,
-        tx_message: Sender<QuorumWaiterMessage>,
+        tx_message: Sender<Vec<u8>>,
         workers_addresses: Vec<(PublicKey, SocketAddr)>,
     ) {
         tokio::spawn(async move {
@@ -145,13 +146,19 @@ impl BatchMaker {
         let bytes = Bytes::from(serialized.clone());
         let handlers = self.network.broadcast(addresses, bytes).await;
 
+        for handler in handlers {
+            BatchMaker::waiter(handler).await;
+        }
+ 
         // Send the batch through the deliver channel for further processing.
         self.tx_message
-            .send(QuorumWaiterMessage {
-                batch: serialized,
-                handlers: names.into_iter().zip(handlers.into_iter()).collect(),
-            })
+            .send(serialized)
             .await
             .expect("Failed to deliver batch");
     }
+
+    async fn waiter(wait_for: CancelHandler) {
+        let _ = wait_for.await;
+    }
+
 }
