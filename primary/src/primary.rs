@@ -12,7 +12,7 @@ use crate::synchronizer::Synchronizer;
 use async_trait::async_trait;
 use bytes::Bytes;
 use config::{Committee, KeyPair, Parameters, WorkerId};
-use crypto::{Digest, PublicKey, SignatureService};
+use crypto::{Digest, PubKey, SignatureService};
 use futures::sink::SinkExt as _;
 use log::info;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
@@ -36,14 +36,14 @@ pub enum PrimaryMessage {
     NoVoteMsg(NoVoteMsg),
     Vote(Vote),
     Certificate(Certificate),
-    CertificatesRequest(Vec<Digest>, /* requestor */ PublicKey),
+    CertificatesRequest(Vec<Digest>, /* requestor */ PubKey),
 }
 
 /// The messages sent by the primary to its workers.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum PrimaryWorkerMessage {
     /// The primary indicates that the worker need to sync the target missing batches.
-    Synchronize(Vec<Digest>, /* target */ PublicKey),
+    Synchronize(Vec<Digest>, /* target */ PubKey),
     /// The primary indicates a round update.
     Cleanup(Round),
 }
@@ -97,7 +97,7 @@ impl Primary {
 
         // Spawn the network receiver listening to messages from the other primaries.
         let mut address = committee
-            .primary(&name)
+            .primary(name.clone())
             .expect("Our public key or worker id is not in the committee")
             .primary_to_primary;
         address.set_ip("0.0.0.0".parse().unwrap());
@@ -116,7 +116,7 @@ impl Primary {
 
         // Spawn the network receiver listening to messages from our workers.
         let mut address = committee
-            .primary(&name)
+            .primary(name.clone())
             .expect("Our public key or worker id is not in the committee")
             .worker_to_primary;
         address.set_ip("0.0.0.0".parse().unwrap());
@@ -135,7 +135,7 @@ impl Primary {
 
         // The `Synchronizer` provides auxiliary methods helping to `Core` to sync.
         let synchronizer = Synchronizer::new(
-            name,
+            name.clone(),
             &committee,
             store.clone(),
             /* tx_header_waiter */ tx_sync_headers,
@@ -147,7 +147,7 @@ impl Primary {
 
         // The `Core` receives and handles headers, votes, and certificates from the other primaries.
         Core::spawn(
-            name,
+            name.clone(),
             committee.clone(),
             store.clone(),
             synchronizer,
@@ -177,7 +177,7 @@ impl Primary {
         // batch digests, it commands the `HeaderWaiter` to synchronizer with other nodes, wait for their reply, and
         // re-schedule execution of the header once we have all missing data.
         HeaderWaiter::spawn(
-            name,
+            name.clone(),
             committee.clone(),
             store.clone(),
             consensus_round,
@@ -199,7 +199,7 @@ impl Primary {
         // When the `Core` collects enough parent certificates, the `Proposer` generates a new header with new batch
         // digests from our workers and it back to the `Core`.
         Proposer::spawn(
-            name,
+            name.clone(),
             committee.clone(),
             signature_service,
             parameters.header_size,
@@ -221,7 +221,7 @@ impl Primary {
             "Primary {} successfully booted on {}",
             name,
             committee
-                .primary(&name)
+                .primary(name.clone())
                 .expect("Our public key or worker id is not in the committee")
                 .primary_to_primary
                 .ip()
@@ -233,7 +233,7 @@ impl Primary {
 #[derive(Clone)]
 struct PrimaryReceiverHandler {
     tx_primary_messages: Sender<PrimaryMessage>,
-    tx_cert_requests: Sender<(Vec<Digest>, PublicKey)>,
+    tx_cert_requests: Sender<(Vec<Digest>, PubKey)>,
 }
 
 #[async_trait]

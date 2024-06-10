@@ -1,7 +1,7 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use config::{Committee, Stake};
 use crypto::Hash as _;
-use crypto::{Digest, PublicKey};
+use crypto::{Digest, PubKey};
 use log::{debug, info, log_enabled, warn};
 use primary::{Certificate, Header, Round};
 use std::cmp::max;
@@ -13,7 +13,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 pub mod consensus_tests;
 
 /// The representation of the DAG in memory.
-type Dag = HashMap<Round, HashMap<PublicKey, (Digest, Certificate)>>;
+type Dag = HashMap<Round, HashMap<PubKey, (Digest, Certificate)>>;
 
 /// The state that needs to be persisted for crash-recovery.
 struct State {
@@ -21,7 +21,7 @@ struct State {
     last_committed_round: Round,
     // Keeps the last committed round for each authority. This map is used to clean up the dag and
     // ensure we don't commit twice the same certificate.
-    last_committed: HashMap<PublicKey, Round>,
+    last_committed: HashMap<PubKey, Round>,
     /// Keeps the latest committed certificate (and its parents) for every authority. Anything older
     /// must be regularly cleaned up through the function `update`.
     dag: Dag,
@@ -36,7 +36,7 @@ impl State {
 
         Self {
             last_committed_round: 0,
-            last_committed: genesis.iter().map(|(x, (_, y))| (*x, y.round())).collect(),
+            last_committed: genesis.iter().map(|(x, (_, y))| (x.clone(), y.round())).collect(),
             dag: [(0, genesis)].iter().cloned().collect(),
         }
     }
@@ -134,7 +134,7 @@ impl Consensus {
                     };
 
                     if header.parents.contains(leader_digest) {
-                        *self.stake_vote.entry(header.round).or_insert(0) += self.committee.stake(&header.author);
+                        *self.stake_vote.entry(header.round).or_insert(0) += self.committee.stake(header.author.clone());
                     }
 
                     let current_stake = self.stake_vote.get(&header.round);
@@ -229,7 +229,7 @@ impl Consensus {
                         .expect("We should have the whole history by now")
                         .values()
                         .filter(|(_, x)| x.header.parents.contains(leader_digest))
-                        .map(|(_, x)| self.committee.stake(&x.origin()))
+                        .map(|(_, x)| self.committee.stake(x.origin().clone()))
                         .sum();
         
                     // If it is the case, we can commit the leader. But first, we need to recursively go back to

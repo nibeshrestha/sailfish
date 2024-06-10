@@ -3,7 +3,7 @@ use crate::messages::{Certificate, Header, NoVoteCert, NoVoteMsg, Timeout, Timeo
 use crate::primary::Round;
 use config::{Committee, WorkerId};
 use crypto::Hash as _;
-use crypto::{Digest, PublicKey, SignatureService};
+use crypto::{Digest, PubKey, SignatureService};
 #[cfg(feature = "benchmark")]
 use log::info;
 use log::{debug, warn};
@@ -18,7 +18,7 @@ pub mod proposer_tests;
 /// The proposer creates new headers and send them to the core for broadcasting and further processing.
 pub struct Proposer {
     /// The public key of this primary.
-    name: PublicKey,
+    name: PubKey,
     /// The committee information.
     committee: Committee,
     /// Service to sign headers.
@@ -62,7 +62,7 @@ pub struct Proposer {
 impl Proposer {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
-        name: PublicKey,
+        name: PubKey,
         committee: Committee,
         signature_service: SignatureService,
         header_size: usize,
@@ -106,7 +106,7 @@ impl Proposer {
     async fn make_timeout_msg(&mut self) {
         let timeout_cert_msg = Timeout::new(
             self.round,
-            self.name,
+            self.name.clone(),
             &mut self.signature_service,
         ).await;
 
@@ -122,7 +122,7 @@ impl Proposer {
     async fn make_no_vote_msg(&mut self) {
         let no_vote_msg = NoVoteMsg::new(
             self.round,
-            self.name,
+            self.name.clone(),
             &mut self.signature_service,
         ).await;
 
@@ -150,7 +150,7 @@ impl Proposer {
             NoVoteCert::new(0) // Assuming NoVoteCert::new creates an empty certificate
         };
         let header = Header::new(
-            self.name,
+            self.name.clone(),
             self.round,
             self.digests.drain(..).collect(),
             self.last_parents.drain(..).map(|x| x.digest()).collect(),

@@ -2,14 +2,14 @@
 use crate::error::{DagError, DagResult};
 use crate::messages::{Certificate, Header, Timeout, TimeoutCert, Vote, NoVoteMsg, NoVoteCert};
 use config::{Committee, Stake};
-use crypto::{PublicKey, Signature};
+use crypto::{PubKey, BlsSignature};
 use std::collections::HashSet;
 
 /// Aggregates votes for a particular header into a certificate.
 pub struct VotesAggregator {
     weight: Stake,
-    votes: Vec<(PublicKey, Signature)>,
-    used: HashSet<PublicKey>,
+    votes: Vec<(PubKey, BlsSignature)>,
+    used: HashSet<PubKey>,
 }
 
 impl VotesAggregator {
@@ -30,10 +30,10 @@ impl VotesAggregator {
         let author = vote.author;
 
         // Ensure it is the first time this authority votes.
-        ensure!(self.used.insert(author), DagError::AuthorityReuse(author));
+        ensure!(self.used.insert(author.clone()), DagError::AuthorityReuse(author));
 
-        self.votes.push((author, vote.signature));
-        self.weight += committee.stake(&author);
+        self.votes.push((author.clone(), vote.signature));
+        self.weight += committee.stake(author.clone());
 
         //to check if we have received vote from the current round leader
         let leader = committee.leader(vote.round as usize);
@@ -42,10 +42,20 @@ impl VotesAggregator {
         }
         
         if self.weight >= committee.quorum_threshold() {
+
+            let mut keys  = Vec::new();
+            let mut signs = Vec::new();
+
+            for i in 0..self.votes.len() {
+                let (pk, sign) =  self.votes[i].clone();
+                signs.push(sign);
+                keys.push(pk)
+            }
+
             self.weight = 0; // Ensures quorum is only reached once.
             return Ok(Some(Certificate {
                 header: header.clone(),
-                votes: self.votes.clone(),
+                votes: (keys,signs),
             }));
         }
         Ok(None)
@@ -56,7 +66,7 @@ impl VotesAggregator {
 pub struct CertificatesAggregator {
     weight: Stake,
     certificates: Vec<Certificate>,
-    used: HashSet<PublicKey>,
+    used: HashSet<PubKey>,
 }
 
 impl CertificatesAggregator {
@@ -76,12 +86,12 @@ impl CertificatesAggregator {
         let origin = certificate.origin();
 
         // Ensure it is the first time this authority votes.
-        if !self.used.insert(origin) {
+        if !self.used.insert(origin.clone()) {
             return Ok(None);
         }
 
         self.certificates.push(certificate);
-        self.weight += committee.stake(&origin);
+        self.weight += committee.stake(origin.clone());
         if self.weight >= committee.quorum_threshold() {
             //self.weight = 0; // Ensures quorum is only reached once.
             return Ok(Some(self.certificates.drain(..).collect()));
@@ -93,8 +103,8 @@ impl CertificatesAggregator {
 /// Aggregates timeouts for a particular round into an action or trigger.
 pub struct TimeoutAggregator {
     weight: Stake,
-    timeouts: Vec<(PublicKey, Signature)>,
-    used: HashSet<PublicKey>,
+    timeouts: Vec<(PubKey, BlsSignature)>,
+    used: HashSet<PubKey>,
 }
 
 impl TimeoutAggregator {
@@ -114,10 +124,10 @@ impl TimeoutAggregator {
         let author = timeout.author;
 
         // Ensure it is the first time this authority sends a timeout.
-        ensure!(self.used.insert(author), DagError::AuthorityReuse(author));
+        ensure!(self.used.insert(author.clone()), DagError::AuthorityReuse(author));
 
-        self.timeouts.push((author, timeout.signature));
-        self.weight += committee.stake(&author);
+        self.timeouts.push((author.clone(), timeout.signature));
+        self.weight += committee.stake(author.clone());
         if self.weight >= committee.quorum_threshold() {
             // Once quorum is reached, you might want to reset for the next round or trigger an action.
             return Ok(Some(TimeoutCert {
@@ -132,8 +142,8 @@ impl TimeoutAggregator {
 /// Aggregates no-vote messages for a particular round into a certification.
 pub struct NoVoteAggregator {
     weight: Stake,
-    no_votes: Vec<(PublicKey, Signature)>,
-    used: HashSet<PublicKey>,
+    no_votes: Vec<(PubKey, BlsSignature)>,
+    used: HashSet<PubKey>,
 }
 
 impl NoVoteAggregator {
@@ -153,10 +163,10 @@ impl NoVoteAggregator {
         let author = no_vote_msg.author;
 
         // Ensure it is the first time this authority sends a no-vote message.
-        ensure!(self.used.insert(author), DagError::AuthorityReuse(author));
+        ensure!(self.used.insert(author.clone()), DagError::AuthorityReuse(author));
 
-        self.no_votes.push((author, no_vote_msg.signature));
-        self.weight += committee.stake(&author);
+        self.no_votes.push((author.clone(), no_vote_msg.signature));
+        self.weight += committee.stake(author.clone());
         if self.weight >= committee.quorum_threshold() {
             // Once quorum is reached, you might reset for the next round or use the certification as needed.
             return Ok(Some(NoVoteCert {

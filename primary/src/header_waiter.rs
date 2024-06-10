@@ -4,7 +4,7 @@ use crate::messages::Header;
 use crate::primary::{PrimaryMessage, PrimaryWorkerMessage, Round};
 use bytes::Bytes;
 use config::{Committee, WorkerId};
-use crypto::{Digest, PublicKey};
+use crypto::{Digest, PubKey};
 use futures::future::try_join_all;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
@@ -32,7 +32,7 @@ pub enum WaiterMessage {
 /// Waits for missing parent certificates and batches' digests.
 pub struct HeaderWaiter {
     /// The name of this authority.
-    name: PublicKey,
+    name: PubKey,
     /// The committee information.
     committee: Committee,
     /// The persistent storage.
@@ -67,7 +67,7 @@ pub struct HeaderWaiter {
 impl HeaderWaiter {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
-        name: PublicKey,
+        name: PubKey,
         committee: Committee,
         store: Store,
         consensus_round: Arc<AtomicU64>,
@@ -132,7 +132,7 @@ impl HeaderWaiter {
                             debug!("Synching the payload of {}", header);
                             let header_id = header.id.clone();
                             let round = header.round;
-                            let author = header.author;
+                            let author = header.author.clone();
 
                             // Ensure we sync only once per header.
                             if self.pending.contains_key(&header_id) {
@@ -163,10 +163,10 @@ impl HeaderWaiter {
                             }
                             for (worker_id, digests) in requires_sync {
                                 let address = self.committee
-                                    .worker(&author, &worker_id)
+                                    .worker(author.clone(), &worker_id)
                                     .expect("Author of valid header is not in the committee")
                                     .primary_to_worker;
-                                let message = PrimaryWorkerMessage::Synchronize(digests, author);
+                                let message = PrimaryWorkerMessage::Synchronize(digests, author.clone());
                                 let bytes = bincode::serialize(&message)
                                     .expect("Failed to serialize batch sync request");
                                 self.network.send(address, Bytes::from(bytes)).await;
@@ -177,7 +177,7 @@ impl HeaderWaiter {
                             debug!("Synching the parents of {}", header);
                             let header_id = header.id.clone();
                             let round = header.round;
-                            let author = header.author;
+                            let author = header.author.clone();
 
                             // Ensure we sync only once per header.
                             if self.pending.contains_key(&header_id) {
@@ -212,10 +212,10 @@ impl HeaderWaiter {
                             }
                             if !requires_sync.is_empty() {
                                 let address = self.committee
-                                    .primary(&author)
+                                    .primary(author.clone())
                                     .expect("Author of valid header not in the committee")
                                     .primary_to_primary;
-                                let message = PrimaryMessage::CertificatesRequest(requires_sync, self.name);
+                                let message = PrimaryMessage::CertificatesRequest(requires_sync, self.name.clone());
                                 let bytes = bincode::serialize(&message).expect("Failed to serialize cert request");
                                 self.network.send(address, Bytes::from(bytes)).await;
                             }
@@ -265,7 +265,7 @@ impl HeaderWaiter {
                         .iter()
                         .map(|(_, x)| x.primary_to_primary)
                         .collect();
-                    let message = PrimaryMessage::CertificatesRequest(retry, self.name);
+                    let message = PrimaryMessage::CertificatesRequest(retry, self.name.clone());
                     let bytes = bincode::serialize(&message).expect("Failed to serialize cert request");
                     self.network.lucky_broadcast(addresses, Bytes::from(bytes), self.sync_retry_nodes).await;
 

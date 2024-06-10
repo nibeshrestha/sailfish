@@ -4,7 +4,7 @@ use crate::header_waiter::WaiterMessage;
 use crate::messages::{Certificate, Header};
 use config::Committee;
 use crypto::Hash as _;
-use crypto::{Digest, PublicKey};
+use crypto::{Digest, PubKey};
 use std::collections::HashMap;
 use store::Store;
 use tokio::sync::mpsc::Sender;
@@ -13,7 +13,7 @@ use tokio::sync::mpsc::Sender;
 /// a command to the `Waiter` to request the missing data.
 pub struct Synchronizer {
     /// The public key of this primary.
-    name: PublicKey,
+    name: PubKey,
     /// The persistent storage.
     store: Store,
     /// Send commands to the `HeaderWaiter`.
@@ -26,7 +26,7 @@ pub struct Synchronizer {
 
 impl Synchronizer {
     pub fn new(
-        name: PublicKey,
+        name: PubKey,
         committee: &Committee,
         store: Store,
         tx_header_waiter: Sender<WaiterMessage>,

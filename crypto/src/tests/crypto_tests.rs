@@ -11,17 +11,17 @@ impl Hash for &[u8] {
     }
 }
 
-impl PartialEq for SecretKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
+// impl PartialEq for SecretKey {
+//     fn eq(&self, other: &Self) -> bool {
+//         self.0 == other.0
+//     }
+// }
 
-impl fmt::Debug for SecretKey {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.encode_base64())
-    }
-}
+// impl fmt::Debug for SecretKey {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+//         write!(f, "{}", self.encode_base64())
+//     }
+// }
 
 pub fn keys() -> Vec<(PublicKey, SecretKey)> {
     let mut rng = StdRng::from_seed([0; 32]);

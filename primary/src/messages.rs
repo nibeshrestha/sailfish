@@ -2,7 +2,7 @@
 use crate::error::{DagError, DagResult};
 use crate::primary::Round;
 use config::{Committee, WorkerId};
-use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
+use crypto::{Digest, Hash, PubKey, BlsSignature, SignatureService};
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use serde::{Deserialize, Serialize};
@@ -12,19 +12,19 @@ use std::fmt;
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Header {
-    pub author: PublicKey,
+    pub author: PubKey,
     pub round: Round,
     pub payload: BTreeMap<Digest, WorkerId>,
     pub parents: BTreeSet<Digest>,
     pub id: Digest,
-    pub signature: Signature,
+    pub signature: BlsSignature,
     pub timeout_cert: TimeoutCert,
     pub no_vote_cert: NoVoteCert,
 }
 
 impl Header {
     pub async fn new(
-        author: PublicKey,
+        author: PubKey,
         round: Round,
         payload: BTreeMap<Digest, WorkerId>,
         parents: BTreeSet<Digest>,
@@ -38,7 +38,7 @@ impl Header {
             payload,
             parents,
             id: Digest::default(),
-            signature: Signature::default(),
+            signature: BlsSignature::default(),
             timeout_cert,
             no_vote_cert,
         };
@@ -56,13 +56,13 @@ impl Header {
         ensure!(self.digest() == self.id, DagError::InvalidHeaderId);
 
         // Ensure the authority has voting rights.
-        let voting_rights = committee.stake(&self.author);
-        ensure!(voting_rights > 0, DagError::UnknownAuthority(self.author));
+        let voting_rights = committee.stake(self.author.clone());
+        ensure!(voting_rights > 0, DagError::UnknownAuthority(self.author.clone()));
 
         // Ensure all worker ids are correct.
         for worker_id in self.payload.values() {
             committee
-                .worker(&self.author, worker_id)
+                .worker(self.author.clone(), worker_id)
                 .map_err(|_| DagError::MalformedHeader(self.id.clone()))?;
         }
 
@@ -114,20 +114,20 @@ impl fmt::Display for Header {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Timeout {
     pub round: Round,
-    pub author: PublicKey,
-    pub signature: Signature,
+    pub author: PubKey,
+    pub signature: BlsSignature,
 }
 
 impl Timeout {
     pub async fn new(
         round: Round,
-        author: PublicKey,
+        author: PubKey,
         signature_service: &mut SignatureService,
     ) -> Self {
         let timeout = Self {
             round,
             author,
-            signature: Signature::default(),
+            signature: BlsSignature::default(),
         };
         let signature = signature_service.request_signature(timeout.digest()).await;
         Self {
@@ -139,8 +139,8 @@ impl Timeout {
     pub fn verify(&self, committee: &Committee) -> DagResult<()> {
         // Ensure the authority has voting rights.
         ensure!(
-            committee.stake(&self.author) > 0,
-            DagError::UnknownAuthority(self.author)
+            committee.stake(self.author.clone()) > 0,
+            DagError::UnknownAuthority(self.author.clone())
         );
 
         // Check the signature.
@@ -179,20 +179,20 @@ impl fmt::Display for Timeout {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct NoVoteMsg {
     pub round: Round,
-    pub author: PublicKey,
-    pub signature: Signature,
+    pub author: PubKey,
+    pub signature: BlsSignature,
 }
 
 impl NoVoteMsg {
     pub async fn new(
         round: Round,
-        author: PublicKey,
+        author: PubKey,
         signature_service: &mut SignatureService,
     ) -> Self {
         let msg = Self {
             round,
             author,
-            signature: Signature::default(),
+            signature: BlsSignature::default(),
         };
         let signature = signature_service.request_signature(msg.digest()).await;
         Self {
@@ -204,8 +204,8 @@ impl NoVoteMsg {
     pub fn verify(&self, committee: &Committee) -> DagResult<()> {
         // Ensure the authority has voting rights.
         ensure!(
-            committee.stake(&self.author) > 0,
-            DagError::UnknownAuthority(self.author)
+            committee.stake(self.author.clone()) > 0,
+            DagError::UnknownAuthority(self.author.clone())
         );
 
         // Check the signature.
@@ -239,23 +239,23 @@ impl fmt::Debug for NoVoteMsg {
 pub struct Vote {
     pub id: Digest,
     pub round: Round,
-    pub origin: PublicKey,
-    pub author: PublicKey,
-    pub signature: Signature,
+    pub origin: PubKey,
+    pub author: PubKey,
+    pub signature: BlsSignature,
 }
 
 impl Vote {
     pub async fn new(
         header: &Header,
-        author: &PublicKey,
+        author: &PubKey,
         signature_service: &mut SignatureService,
     ) -> Self {
         let vote = Self {
             id: header.id.clone(),
             round: header.round,
-            origin: header.author,
-            author: *author,
-            signature: Signature::default(),
+            origin: header.author.clone(),
+            author: author.clone(),
+            signature: BlsSignature::default(),
         };
         let signature = signature_service.request_signature(vote.digest()).await;
         Self { signature, ..vote }
@@ -264,8 +264,8 @@ impl Vote {
     pub fn verify(&self, committee: &Committee) -> DagResult<()> {
         // Ensure the authority has voting rights.
         ensure!(
-            committee.stake(&self.author) > 0,
-            DagError::UnknownAuthority(self.author)
+            committee.stake(self.author.clone()) > 0,
+            DagError::UnknownAuthority(self.author.clone())
         );
 
         // Check the signature.
@@ -302,7 +302,7 @@ impl fmt::Debug for Vote {
 pub struct TimeoutCert {
     pub round: Round,
     // Stores a list of public keys and their corresponding signatures.
-    pub timeouts: Vec<(PublicKey, Signature)>,
+    pub timeouts: Vec<(PubKey, BlsSignature)>,
 }
 
 impl TimeoutCert {
@@ -314,7 +314,7 @@ impl TimeoutCert {
     }
 
     // Adds a timeout to the certificate. 
-    pub fn add_timeout(&mut self, author: PublicKey, signature: Signature) -> DagResult<()> {
+    pub fn add_timeout(&mut self, author: PubKey, signature: BlsSignature) -> DagResult<()> {
         // Ensure this public key hasn't already submitted a timeout for this round
         if self.timeouts.iter().any(|(pk, _)| *pk == author) {
             return Err(DagError::AuthorityReuse(author));
@@ -332,10 +332,10 @@ impl TimeoutCert {
 
         let mut used = HashSet::new();
         for (name, _) in self.timeouts.iter() {
-            ensure!(!used.contains(name), DagError::AuthorityReuse(*name));
-            let voting_rights = committee.stake(name);
-            ensure!(voting_rights > 0, DagError::UnknownAuthority(*name));
-            used.insert(*name);
+            ensure!(!used.contains(name), DagError::AuthorityReuse(name.clone()));
+            let voting_rights = committee.stake(name.clone());
+            ensure!(voting_rights > 0, DagError::UnknownAuthority(name.clone()));
+            used.insert(name);
             weight += voting_rights;
         }
 
@@ -352,7 +352,7 @@ impl TimeoutCert {
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct NoVoteCert {
     pub round: Round,
-    pub no_votes: Vec<(PublicKey, Signature)>,
+    pub no_votes: Vec<(PubKey, BlsSignature)>,
 }
 
 impl NoVoteCert {
@@ -363,7 +363,7 @@ impl NoVoteCert {
         }
     }
 
-    pub fn add_no_vote(&mut self, author: PublicKey, signature: Signature) -> DagResult<()> {
+    pub fn add_no_vote(&mut self, author: PubKey, signature: BlsSignature) -> DagResult<()> {
         if self.no_votes.iter().any(|(pk, _)| *pk == author) {
             return Err(DagError::AuthorityReuse(author));
         }
@@ -377,10 +377,10 @@ impl NoVoteCert {
         let mut weight = 0;
         let mut used = HashSet::new();
         for (author, _) in &self.no_votes {
-            ensure!(!used.contains(author), DagError::AuthorityReuse(*author));
-            let voting_rights = committee.stake(author);
-            ensure!(voting_rights > 0, DagError::UnknownAuthority(*author));
-            used.insert(*author);
+            ensure!(!used.contains(author), DagError::AuthorityReuse(author.clone()));
+            let voting_rights = committee.stake(author.clone());
+            ensure!(voting_rights > 0, DagError::UnknownAuthority(author.clone()));
+            used.insert(author);
             weight += voting_rights;
         }
 
@@ -396,7 +396,7 @@ impl NoVoteCert {
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Certificate {
     pub header: Header,
-    pub votes: Vec<(PublicKey, Signature)>,
+    pub votes: (Vec<PubKey>, Vec<BlsSignature>),
 }
 
 impl Certificate {
@@ -406,7 +406,7 @@ impl Certificate {
             .keys()
             .map(|name| Self {
                 header: Header {
-                    author: *name,
+                    author: name.clone(),
                     ..Header::default()
                 },
                 ..Self::default()
@@ -426,11 +426,11 @@ impl Certificate {
         // Ensure the certificate has a quorum.
         let mut weight = 0;
         let mut used = HashSet::new();
-        for (name, _) in self.votes.iter() {
-            ensure!(!used.contains(name), DagError::AuthorityReuse(*name));
-            let voting_rights = committee.stake(name);
-            ensure!(voting_rights > 0, DagError::UnknownAuthority(*name));
-            used.insert(*name);
+        for name in self.votes.0.iter() {
+            ensure!(!used.contains(name), DagError::AuthorityReuse(name.clone()));
+            let voting_rights = committee.stake(name.clone());
+            ensure!(voting_rights > 0, DagError::UnknownAuthority(name.clone()));
+            used.insert(name);
             weight += voting_rights;
         }
         ensure!(
@@ -439,15 +439,15 @@ impl Certificate {
         );
 
         // Check the signatures.
-        Signature::verify_batch(&self.digest(), &self.votes).map_err(DagError::from)
+        BlsSignature::verify_batch(&self.digest(), self.votes.clone()).map_err(DagError::from)
     }
 
     pub fn round(&self) -> Round {
         self.header.round
     }
 
-    pub fn origin(&self) -> PublicKey {
-        self.header.author
+    pub fn origin(&self) -> PubKey {
+        self.header.author.clone()
     }
 }
 

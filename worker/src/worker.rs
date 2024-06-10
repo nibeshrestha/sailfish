@@ -8,7 +8,7 @@ use crate::synchronizer::Synchronizer;
 use async_trait::async_trait;
 use bytes::Bytes;
 use config::{Committee, Parameters, WorkerId};
-use crypto::{Digest, PublicKey};
+use crypto::{Digest, PubKey};
 use futures::sink::SinkExt as _;
 use log::{error, info, warn};
 use network::{MessageHandler, Receiver, Writer};
@@ -36,12 +36,12 @@ pub type SerializedBatchDigestMessage = Vec<u8>;
 #[derive(Debug, Serialize, Deserialize)]
 pub enum WorkerMessage {
     Batch(Batch),
-    BatchRequest(Vec<Digest>, /* origin */ PublicKey),
+    BatchRequest(Vec<Digest>, /* origin */ PubKey),
 }
 
 pub struct Worker {
     /// The public key of this authority.
-    name: PublicKey,
+    name: PubKey,
     /// The id of this worker.
     id: WorkerId,
     /// The committee information.
@@ -54,7 +54,7 @@ pub struct Worker {
 
 impl Worker {
     pub fn spawn(
-        name: PublicKey,
+        name: PubKey,
         id: WorkerId,
         committee: Committee,
         parameters: Parameters,
@@ -79,7 +79,7 @@ impl Worker {
         PrimaryConnector::spawn(
             worker
                 .committee
-                .primary(&worker.name)
+                .primary(worker.name.clone())
                 .expect("Our public key is not in the committee")
                 .worker_to_primary,
             rx_primary,
@@ -91,7 +91,7 @@ impl Worker {
             id,
             worker
                 .committee
-                .worker(&worker.name, &worker.id)
+                .worker(worker.name.clone(), &worker.id)
                 .expect("Our public key or worker id is not in the committee")
                 .transactions
                 .ip()
@@ -105,7 +105,7 @@ impl Worker {
         // Receive incoming messages from our primary.
         let mut address = self
             .committee
-            .worker(&self.name, &self.id)
+            .worker(self.name.clone(), &self.id)
             .expect("Our public key or worker id is not in the committee")
             .primary_to_worker;
         address.set_ip("0.0.0.0".parse().unwrap());
@@ -118,7 +118,7 @@ impl Worker {
         // The `Synchronizer` is responsible to keep the worker in sync with the others. It handles the commands
         // it receives from the primary (which are mainly notifications that we are out of sync).
         Synchronizer::spawn(
-            self.name,
+            self.name.clone(),
             self.id,
             self.committee.clone(),
             self.store.clone(),
@@ -143,7 +143,7 @@ impl Worker {
         // We first receive clients' transactions from the network.
         let mut address = self
             .committee
-            .worker(&self.name, &self.id)
+            .worker(self.name.clone(), &self.id)
             .expect("Our public key or worker id is not in the committee")
             .transactions;
         address.set_ip("0.0.0.0".parse().unwrap());
@@ -164,7 +164,7 @@ impl Worker {
             self.committee
                 .others_workers(&self.name, &self.id)
                 .iter()
-                .map(|(name, addresses)| (*name, addresses.worker_to_worker))
+                .map(|(name, addresses)| (name.clone(), addresses.worker_to_worker))
                 .collect(),
         );
 
@@ -172,7 +172,7 @@ impl Worker {
         // the batch to the `Processor`.
         QuorumWaiter::spawn(
             self.committee.clone(),
-            /* stake */ self.committee.stake(&self.name),
+            /* stake */ self.committee.stake(self.name.clone()),
             /* rx_message */ rx_quorum_waiter,
             /* tx_batch */ tx_processor,
         );
@@ -201,7 +201,7 @@ impl Worker {
         // Receive incoming messages from other workers.
         let mut address = self
             .committee
-            .worker(&self.name, &self.id)
+            .worker(self.name.clone(), &self.id)
             .expect("Our public key or worker id is not in the committee")
             .worker_to_worker;
         address.set_ip("0.0.0.0".parse().unwrap());
@@ -263,7 +263,7 @@ impl MessageHandler for TxReceiverHandler {
 /// Defines how the network receiver handles incoming workers messages.
 #[derive(Clone)]
 struct WorkerReceiverHandler {
-    tx_helper: Sender<(Vec<Digest>, PublicKey)>,
+    tx_helper: Sender<(Vec<Digest>, PubKey)>,
     tx_processor: Sender<SerializedBatchMessage>,
 }
 

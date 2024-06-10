@@ -8,7 +8,7 @@ use async_recursion::async_recursion;
 use bytes::Bytes;
 use config::Committee;
 use crypto::Hash as _;
-use crypto::{Digest, PublicKey, SignatureService};
+use crypto::{Digest, PubKey, SignatureService};
 use log::{debug, error, warn};
 use network::{CancelHandler, ReliableSender};
 use std::collections::{HashMap, HashSet};
@@ -23,7 +23,7 @@ pub mod core_tests;
 
 pub struct Core {
     /// The public key of this primary.
-    name: PublicKey,
+    name: PubKey,
     /// The committee information.
     committee: Committee,
     /// The persistent storage.
@@ -63,7 +63,7 @@ pub struct Core {
     /// The last garbage collected round.
     gc_round: Round,
     /// The authors of the last voted headers.
-    last_voted: HashMap<Round, HashSet<PublicKey>>,
+    last_voted: HashMap<Round, HashSet<PubKey>>,
     /// The set of headers we are currently processing.
     processing: HashMap<Round, HashSet<Digest>>,
     /// The last header we proposed (for which we are waiting votes).
@@ -85,7 +85,7 @@ pub struct Core {
 impl Core {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
-        name: PublicKey,
+        name: PubKey,
         committee: Committee,
         store: Store,
         synchronizer: Synchronizer,
@@ -179,7 +179,7 @@ impl Core {
 
         let address = self
             .committee
-            .primary(&leader_pub_key)
+            .primary(leader_pub_key.clone())
             .expect("public key not found")
             .primary_to_primary;
         // Send the No Vote Msg to each address.
@@ -248,7 +248,7 @@ impl Core {
                 x.round() + 1 == header.round,
                 DagError::MalformedHeader(header.id.clone())
             );
-            stake += self.committee.stake(&x.origin());
+            stake += self.committee.stake(x.origin().clone());
             
             has_leader = has_leader || self.committee.leader((header.round - 1) as usize).eq(&x.header.author);
         }
@@ -280,7 +280,7 @@ impl Core {
             .last_voted
             .entry(header.round)
             .or_insert_with(HashSet::new)
-            .insert(header.author)
+            .insert(header.author.clone())
         {
             // Make a vote and send it to the header's creator.
             let vote = Vote::new(header, &self.name, &mut self.signature_service).await;
@@ -292,7 +292,7 @@ impl Core {
             } else {
                 let address = self
                     .committee
-                    .primary(&header.author)
+                    .primary(header.author.clone())
                     .expect("Author of valid header is not in the committee")
                     .primary_to_primary;
                 let bytes = bincode::serialize(&PrimaryMessage::Vote(vote))

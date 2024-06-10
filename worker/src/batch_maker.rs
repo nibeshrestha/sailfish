@@ -4,7 +4,7 @@ use crate::worker::WorkerMessage;
 use bytes::Bytes;
 #[cfg(feature = "benchmark")]
 use crypto::Digest;
-use crypto::PublicKey;
+use crypto::PubKey;
 #[cfg(feature = "benchmark")]
 use ed25519_dalek::{Digest as _, Sha512};
 #[cfg(feature = "benchmark")]
@@ -34,7 +34,7 @@ pub struct BatchMaker {
     /// Output channel to deliver sealed batches to the `QuorumWaiter`.
     tx_message: Sender<QuorumWaiterMessage>,
     /// The network addresses of the other workers that share our worker id.
-    workers_addresses: Vec<(PublicKey, SocketAddr)>,
+    workers_addresses: Vec<(PubKey, SocketAddr)>,
     /// Holds the current batch.
     current_batch: Batch,
     /// Holds the size of the current batch (in bytes).
@@ -49,7 +49,7 @@ impl BatchMaker {
         max_batch_delay: u64,
         rx_transaction: Receiver<Transaction>,
         tx_message: Sender<QuorumWaiterMessage>,
-        workers_addresses: Vec<(PublicKey, SocketAddr)>,
+        workers_addresses: Vec<(PubKey, SocketAddr)>,
     ) {
         tokio::spawn(async move {
             Self {

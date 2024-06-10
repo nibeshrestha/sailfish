@@ -1,7 +1,7 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::processor::SerializedBatchMessage;
 use config::{Committee, Stake};
-use crypto::PublicKey;
+use crypto::PubKey;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
 use network::CancelHandler;
@@ -16,7 +16,7 @@ pub struct QuorumWaiterMessage {
     /// A serialized `WorkerMessage::Batch` message.
     pub batch: SerializedBatchMessage,
     /// The cancel handlers to receive the acknowledgements of our broadcast.
-    pub handlers: Vec<(PublicKey, CancelHandler)>,
+    pub handlers: Vec<(PubKey, CancelHandler)>,
 }
 
 /// The QuorumWaiter waits for 2f authorities to acknowledge reception of a batch.
@@ -63,7 +63,7 @@ impl QuorumWaiter {
             let mut wait_for_quorum: FuturesUnordered<_> = handlers
                 .into_iter()
                 .map(|(name, handler)| {
-                    let stake = self.committee.stake(&name);
+                    let stake = self.committee.stake(name.clone());
                     Self::waiter(handler, stake)
                 })
                 .collect();

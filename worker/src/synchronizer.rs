@@ -2,7 +2,7 @@
 use crate::worker::{Round, WorkerMessage};
 use bytes::Bytes;
 use config::{Committee, WorkerId};
-use crypto::{Digest, PublicKey};
+use crypto::{Digest, PubKey};
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
 use log::{debug, error};
@@ -24,7 +24,7 @@ const TIMER_RESOLUTION: u64 = 1_000;
 // The `Synchronizer` is responsible to keep the worker in sync with the others.
 pub struct Synchronizer {
     /// The public key of this authority.
-    name: PublicKey,
+    name: PubKey,
     /// The id of this worker.
     id: WorkerId,
     /// The committee information.
@@ -53,7 +53,7 @@ pub struct Synchronizer {
 impl Synchronizer {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
-        name: PublicKey,
+        name: PubKey,
         id: WorkerId,
         committee: Committee,
         store: Store,
@@ -146,14 +146,14 @@ impl Synchronizer {
 
                         // Send sync request to a single node. If this fails, we will send it
                         // to other nodes when a timer times out.
-                        let address = match self.committee.worker(&target, &self.id) {
+                        let address = match self.committee.worker(target, &self.id) {
                             Ok(address) => address.worker_to_worker,
                             Err(e) => {
                                 error!("The primary asked us to sync with an unknown node: {}", e);
                                 continue;
                             }
                         };
-                        let message = WorkerMessage::BatchRequest(missing, self.name);
+                        let message = WorkerMessage::BatchRequest(missing, self.name.clone());
                         let serialized = bincode::serialize(&message).expect("Failed to serialize our own message");
                         self.network.send(address, Bytes::from(serialized)).await;
                     },
@@ -210,7 +210,7 @@ impl Synchronizer {
                             .others_workers(&self.name, &self.id)
                             .iter().map(|(_, address)| address.worker_to_worker)
                             .collect();
-                        let message = WorkerMessage::BatchRequest(retry, self.name);
+                        let message = WorkerMessage::BatchRequest(retry, self.name.clone());
                         let serialized = bincode::serialize(&message).expect("Failed to serialize our own message");
                         self.network
                             .lucky_broadcast(addresses, Bytes::from(serialized), self.sync_retry_nodes)
