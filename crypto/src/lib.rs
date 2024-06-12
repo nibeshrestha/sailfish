@@ -5,11 +5,12 @@ use rand::{CryptoRng, Rng, RngCore};
 use rand_chacha::rand_core::SeedableRng;
 use serde::{de, ser, Deserialize, Serialize};
 use std::array::TryFromSliceError;
+use std::collections::btree_map::VacantEntry;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::oneshot;
-use bls_signatures::{PrivateKey, PublicKey, Serialize as Ser, Signature, Error as BlsError};
+use bls_signatures::{aggregate, verify_messages, Error as BlsError, PrivateKey, PublicKey, Serialize as Ser, Signature};
 use rand_chacha::ChaCha8Rng;
 
 #[cfg(test)]
@@ -294,11 +295,27 @@ impl BlsSignature {
         sign
     }
 
+    pub fn from_signature(sign: Signature) -> BlsSignature {
+        let bytes = sign.as_bytes();
+        let part1 : [u8;48] = bytes[0..48].try_into().unwrap();
+        let part2: [u8;48] = bytes[48..96].try_into().unwrap();
+
+        BlsSignature {
+            part1,
+            part2,
+        }
+    }
+
     pub fn flatten(&self) -> [u8; 96] {
         [self.part1, self.part2]
             .concat()
             .try_into()
             .expect("Unexpected signature length")
+    }
+
+    pub fn aggregate_sign(signs : &Vec<Signature>) -> Signature {
+        let aggregated_sign = bls_signatures::aggregate(signs.as_slice()).unwrap();
+        aggregated_sign
     }
 
     pub fn verify(&self, digest: &Digest, public_key: &PubKey) -> Result<(), BlsError> {
@@ -308,11 +325,11 @@ impl BlsSignature {
         Ok(())
     }
 
-    pub fn verify_batch (digest: &Digest, votes: (Vec<PubKey>, Vec<BlsSignature>)) -> Result<(), BlsError>
-    {
-        for i in 0..votes.0.len() {
-            let _ = BlsSignature::verify(&votes.1[i], digest, &votes.0[0]);
-        }
+    pub fn verify_batch (digest: &Digest, votes: (Vec<PubKey>, BlsSignature)) -> Result<(), BlsError>
+    {   
+        let pubkeys : Vec<PublicKey> = votes.0.iter().map(|k| PublicKey::from_bytes(&k.0).unwrap()).collect();
+        let digests : Vec<&[u8]> = [0..pubkeys.len()].iter().map(|_| digest.0.as_slice()).collect();
+        let _ = verify_messages(&votes.1.as_signature(), digests.as_ref(), &pubkeys);
         Ok(())
     }
 }

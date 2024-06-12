@@ -396,7 +396,7 @@ impl NoVoteCert {
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Certificate {
     pub header: Header,
-    pub votes: (Vec<PubKey>, Vec<BlsSignature>),
+    pub votes: (Vec<PubKey>, BlsSignature),
 }
 
 impl Certificate {

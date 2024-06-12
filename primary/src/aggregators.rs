@@ -43,19 +43,21 @@ impl VotesAggregator {
         
         if self.weight >= committee.quorum_threshold() {
 
-            let mut keys  = Vec::new();
+            let mut pub_keys  = Vec::new();
             let mut signs = Vec::new();
 
             for i in 0..self.votes.len() {
                 let (pk, sign) =  self.votes[i].clone();
-                signs.push(sign);
-                keys.push(pk)
+                signs.push(sign.as_signature());
+                pub_keys.push(pk)
             }
+
+            let aggregated_sign = BlsSignature::from_signature(BlsSignature::aggregate_sign(&signs));
 
             self.weight = 0; // Ensures quorum is only reached once.
             return Ok(Some(Certificate {
                 header: header.clone(),
-                votes: (keys,signs),
+                votes: (pub_keys,aggregated_sign),
             }));
         }
         Ok(None)
