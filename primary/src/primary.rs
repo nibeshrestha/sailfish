@@ -97,7 +97,7 @@ impl Primary {
 
         // Spawn the network receiver listening to messages from the other primaries.
         let mut address = committee
-            .primary(name.clone())
+            .primary(&name)
             .expect("Our public key or worker id is not in the committee")
             .primary_to_primary;
         address.set_ip("0.0.0.0".parse().unwrap());
@@ -116,7 +116,7 @@ impl Primary {
 
         // Spawn the network receiver listening to messages from our workers.
         let mut address = committee
-            .primary(name.clone())
+            .primary(&name)
             .expect("Our public key or worker id is not in the committee")
             .worker_to_primary;
         address.set_ip("0.0.0.0".parse().unwrap());
@@ -135,7 +135,7 @@ impl Primary {
 
         // The `Synchronizer` provides auxiliary methods helping to `Core` to sync.
         let synchronizer = Synchronizer::new(
-            name.clone(),
+            name,
             &committee,
             store.clone(),
             /* tx_header_waiter */ tx_sync_headers,
@@ -147,7 +147,7 @@ impl Primary {
 
         // The `Core` receives and handles headers, votes, and certificates from the other primaries.
         Core::spawn(
-            name.clone(),
+            name,
             committee.clone(),
             store.clone(),
             synchronizer,
@@ -177,7 +177,7 @@ impl Primary {
         // batch digests, it commands the `HeaderWaiter` to synchronizer with other nodes, wait for their reply, and
         // re-schedule execution of the header once we have all missing data.
         HeaderWaiter::spawn(
-            name.clone(),
+            name,
             committee.clone(),
             store.clone(),
             consensus_round,
@@ -199,7 +199,7 @@ impl Primary {
         // When the `Core` collects enough parent certificates, the `Proposer` generates a new header with new batch
         // digests from our workers and it back to the `Core`.
         Proposer::spawn(
-            name.clone(),
+            name,
             committee.clone(),
             signature_service,
             parameters.header_size,
@@ -221,7 +221,7 @@ impl Primary {
             "Primary {} successfully booted on {}",
             name,
             committee
-                .primary(name.clone())
+                .primary(&name)
                 .expect("Our public key or worker id is not in the committee")
                 .primary_to_primary
                 .ip()

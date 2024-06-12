@@ -179,7 +179,7 @@ impl Core {
 
         let address = self
             .committee
-            .primary(leader_pub_key.clone())
+            .primary(&leader_pub_key)
             .expect("public key not found")
             .primary_to_primary;
         // Send the No Vote Msg to each address.
@@ -248,7 +248,7 @@ impl Core {
                 x.round() + 1 == header.round,
                 DagError::MalformedHeader(header.id.clone())
             );
-            stake += self.committee.stake(x.origin().clone());
+            stake += self.committee.stake(&x.origin());
             
             has_leader = has_leader || self.committee.leader((header.round - 1) as usize).eq(&x.header.author);
         }
@@ -280,7 +280,7 @@ impl Core {
             .last_voted
             .entry(header.round)
             .or_insert_with(HashSet::new)
-            .insert(header.author.clone())
+            .insert(header.author)
         {
             // Make a vote and send it to the header's creator.
             let vote = Vote::new(header, &self.name, &mut self.signature_service).await;
@@ -292,7 +292,7 @@ impl Core {
             } else {
                 let address = self
                     .committee
-                    .primary(header.author.clone())
+                    .primary(&header.author)
                     .expect("Author of valid header is not in the committee")
                     .primary_to_primary;
                 let bytes = bincode::serialize(&PrimaryMessage::Vote(vote))

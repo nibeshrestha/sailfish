@@ -50,7 +50,7 @@ impl Helper {
             // TODO [issue #7]: Do some accounting to prevent bad nodes from monopolizing our resources.
 
             // get the requestors address.
-            let address = match self.committee.worker(origin.clone(), &self.id) {
+            let address = match self.committee.worker(&origin, &self.id) {
                 Ok(x) => x.worker_to_worker,
                 Err(e) => {
                     warn!("Unexpected batch request: {}", e);

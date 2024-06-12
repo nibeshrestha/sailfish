@@ -106,7 +106,7 @@ impl Proposer {
     async fn make_timeout_msg(&mut self) {
         let timeout_cert_msg = Timeout::new(
             self.round,
-            self.name.clone(),
+            self.name,
             &mut self.signature_service,
         ).await;
 
@@ -122,7 +122,7 @@ impl Proposer {
     async fn make_no_vote_msg(&mut self) {
         let no_vote_msg = NoVoteMsg::new(
             self.round,
-            self.name.clone(),
+            self.name,
             &mut self.signature_service,
         ).await;
 
@@ -150,7 +150,7 @@ impl Proposer {
             NoVoteCert::new(0) // Assuming NoVoteCert::new creates an empty certificate
         };
         let header = Header::new(
-            self.name.clone(),
+            self.name,
             self.round,
             self.digests.drain(..).collect(),
             self.last_parents.drain(..).map(|x| x.digest()).collect(),

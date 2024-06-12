@@ -30,7 +30,7 @@ impl GarbageCollector {
         rx_consensus: Receiver<Certificate>,
     ) {
         let addresses = committee
-            .our_workers(name.clone())
+            .our_workers(name)
             .expect("Our public key or worker id is not in the committee")
             .iter()
             .map(|x| x.primary_to_worker)

@@ -56,13 +56,13 @@ impl Header {
         ensure!(self.digest() == self.id, DagError::InvalidHeaderId);
 
         // Ensure the authority has voting rights.
-        let voting_rights = committee.stake(self.author.clone());
-        ensure!(voting_rights > 0, DagError::UnknownAuthority(self.author.clone()));
+        let voting_rights = committee.stake(&self.author);
+        ensure!(voting_rights > 0, DagError::UnknownAuthority(self.author));
 
         // Ensure all worker ids are correct.
         for worker_id in self.payload.values() {
             committee
-                .worker(self.author.clone(), worker_id)
+                .worker(&self.author, worker_id)
                 .map_err(|_| DagError::MalformedHeader(self.id.clone()))?;
         }
 
@@ -139,8 +139,8 @@ impl Timeout {
     pub fn verify(&self, committee: &Committee) -> DagResult<()> {
         // Ensure the authority has voting rights.
         ensure!(
-            committee.stake(self.author.clone()) > 0,
-            DagError::UnknownAuthority(self.author.clone())
+            committee.stake(&self.author) > 0,
+            DagError::UnknownAuthority(self.author)
         );
 
         // Check the signature.
@@ -204,8 +204,8 @@ impl NoVoteMsg {
     pub fn verify(&self, committee: &Committee) -> DagResult<()> {
         // Ensure the authority has voting rights.
         ensure!(
-            committee.stake(self.author.clone()) > 0,
-            DagError::UnknownAuthority(self.author.clone())
+            committee.stake(&self.author) > 0,
+            DagError::UnknownAuthority(self.author)
         );
 
         // Check the signature.
@@ -253,8 +253,8 @@ impl Vote {
         let vote = Self {
             id: header.id.clone(),
             round: header.round,
-            origin: header.author.clone(),
-            author: author.clone(),
+            origin: header.author,
+            author: *author,
             signature: BlsSignature::default(),
         };
         let signature = signature_service.request_signature(vote.digest()).await;
@@ -264,8 +264,8 @@ impl Vote {
     pub fn verify(&self, committee: &Committee) -> DagResult<()> {
         // Ensure the authority has voting rights.
         ensure!(
-            committee.stake(self.author.clone()) > 0,
-            DagError::UnknownAuthority(self.author.clone())
+            committee.stake(&self.author) > 0,
+            DagError::UnknownAuthority(self.author)
         );
 
         // Check the signature.
@@ -332,9 +332,9 @@ impl TimeoutCert {
 
         let mut used = HashSet::new();
         for (name, _) in self.timeouts.iter() {
-            ensure!(!used.contains(name), DagError::AuthorityReuse(name.clone()));
-            let voting_rights = committee.stake(name.clone());
-            ensure!(voting_rights > 0, DagError::UnknownAuthority(name.clone()));
+            ensure!(!used.contains(name), DagError::AuthorityReuse(*name));
+            let voting_rights = committee.stake(name);
+            ensure!(voting_rights > 0, DagError::UnknownAuthority(*name));
             used.insert(name);
             weight += voting_rights;
         }
@@ -377,10 +377,10 @@ impl NoVoteCert {
         let mut weight = 0;
         let mut used = HashSet::new();
         for (author, _) in &self.no_votes {
-            ensure!(!used.contains(author), DagError::AuthorityReuse(author.clone()));
-            let voting_rights = committee.stake(author.clone());
-            ensure!(voting_rights > 0, DagError::UnknownAuthority(author.clone()));
-            used.insert(author);
+            ensure!(!used.contains(author), DagError::AuthorityReuse(*author));
+            let voting_rights = committee.stake(author);
+            ensure!(voting_rights > 0, DagError::UnknownAuthority(*author));
+            used.insert(*author);
             weight += voting_rights;
         }
 
@@ -406,7 +406,7 @@ impl Certificate {
             .keys()
             .map(|name| Self {
                 header: Header {
-                    author: name.clone(),
+                    author: *name,
                     ..Header::default()
                 },
                 ..Self::default()
@@ -427,9 +427,9 @@ impl Certificate {
         let mut weight = 0;
         let mut used = HashSet::new();
         for name in self.votes.0.iter() {
-            ensure!(!used.contains(name), DagError::AuthorityReuse(name.clone()));
-            let voting_rights = committee.stake(name.clone());
-            ensure!(voting_rights > 0, DagError::UnknownAuthority(name.clone()));
+            ensure!(!used.contains(name), DagError::AuthorityReuse(*name));
+            let voting_rights = committee.stake(name);
+            ensure!(voting_rights > 0, DagError::UnknownAuthority(*name));
             used.insert(name);
             weight += voting_rights;
         }
@@ -447,7 +447,7 @@ impl Certificate {
     }
 
     pub fn origin(&self) -> PubKey {
-        self.header.author.clone()
+        self.header.author
     }
 }
 

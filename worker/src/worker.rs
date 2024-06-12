@@ -79,7 +79,7 @@ impl Worker {
         PrimaryConnector::spawn(
             worker
                 .committee
-                .primary(worker.name.clone())
+                .primary(&worker.name)
                 .expect("Our public key is not in the committee")
                 .worker_to_primary,
             rx_primary,
@@ -91,7 +91,7 @@ impl Worker {
             id,
             worker
                 .committee
-                .worker(worker.name.clone(), &worker.id)
+                .worker(&worker.name, &worker.id)
                 .expect("Our public key or worker id is not in the committee")
                 .transactions
                 .ip()
@@ -105,7 +105,7 @@ impl Worker {
         // Receive incoming messages from our primary.
         let mut address = self
             .committee
-            .worker(self.name.clone(), &self.id)
+            .worker(&self.name, &self.id)
             .expect("Our public key or worker id is not in the committee")
             .primary_to_worker;
         address.set_ip("0.0.0.0".parse().unwrap());
@@ -118,7 +118,7 @@ impl Worker {
         // The `Synchronizer` is responsible to keep the worker in sync with the others. It handles the commands
         // it receives from the primary (which are mainly notifications that we are out of sync).
         Synchronizer::spawn(
-            self.name.clone(),
+            self.name,
             self.id,
             self.committee.clone(),
             self.store.clone(),
@@ -143,7 +143,7 @@ impl Worker {
         // We first receive clients' transactions from the network.
         let mut address = self
             .committee
-            .worker(self.name.clone(), &self.id)
+            .worker(&self.name, &self.id)
             .expect("Our public key or worker id is not in the committee")
             .transactions;
         address.set_ip("0.0.0.0".parse().unwrap());
@@ -164,7 +164,7 @@ impl Worker {
             self.committee
                 .others_workers(&self.name, &self.id)
                 .iter()
-                .map(|(name, addresses)| (name.clone(), addresses.worker_to_worker))
+                .map(|(name, addresses)| (*name, addresses.worker_to_worker))
                 .collect(),
         );
 
@@ -172,7 +172,7 @@ impl Worker {
         // the batch to the `Processor`.
         QuorumWaiter::spawn(
             self.committee.clone(),
-            /* stake */ self.committee.stake(self.name.clone()),
+            /* stake */ self.committee.stake(&self.name),
             /* rx_message */ rx_quorum_waiter,
             /* tx_batch */ tx_processor,
         );
@@ -201,7 +201,7 @@ impl Worker {
         // Receive incoming messages from other workers.
         let mut address = self
             .committee
-            .worker(self.name.clone(), &self.id)
+            .worker(&self.name, &self.id)
             .expect("Our public key or worker id is not in the committee")
             .worker_to_worker;
         address.set_ip("0.0.0.0".parse().unwrap());

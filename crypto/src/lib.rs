@@ -64,7 +64,7 @@ pub trait Hash {
 }
 
 // Represents a public key (in bytes).
-#[derive(Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
+#[derive(Copy,Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct PubKey(pub [u8; 48]);
 
 impl PubKey {
@@ -130,11 +130,6 @@ impl AsRef<[u8]> for PubKey {
     }
 }
 
-impl Drop for PubKey {
-    fn drop(&mut self) {
-        self.0.iter_mut().for_each(|x| *x = 0);
-    }
-}
 
 
 /// Represents a secret key (in bytes).

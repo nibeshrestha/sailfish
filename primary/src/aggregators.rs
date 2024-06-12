@@ -30,10 +30,10 @@ impl VotesAggregator {
         let author = vote.author;
 
         // Ensure it is the first time this authority votes.
-        ensure!(self.used.insert(author.clone()), DagError::AuthorityReuse(author));
+        ensure!(self.used.insert(author), DagError::AuthorityReuse(author));
 
-        self.votes.push((author.clone(), vote.signature));
-        self.weight += committee.stake(author.clone());
+        self.votes.push((author, vote.signature));
+        self.weight += committee.stake(&author);
 
         //to check if we have received vote from the current round leader
         let leader = committee.leader(vote.round as usize);
@@ -88,12 +88,12 @@ impl CertificatesAggregator {
         let origin = certificate.origin();
 
         // Ensure it is the first time this authority votes.
-        if !self.used.insert(origin.clone()) {
+        if !self.used.insert(origin) {
             return Ok(None);
         }
 
         self.certificates.push(certificate);
-        self.weight += committee.stake(origin.clone());
+        self.weight += committee.stake(&origin);
         if self.weight >= committee.quorum_threshold() {
             //self.weight = 0; // Ensures quorum is only reached once.
             return Ok(Some(self.certificates.drain(..).collect()));
@@ -126,10 +126,10 @@ impl TimeoutAggregator {
         let author = timeout.author;
 
         // Ensure it is the first time this authority sends a timeout.
-        ensure!(self.used.insert(author.clone()), DagError::AuthorityReuse(author));
+        ensure!(self.used.insert(author), DagError::AuthorityReuse(author));
 
         self.timeouts.push((author.clone(), timeout.signature));
-        self.weight += committee.stake(author.clone());
+        self.weight += committee.stake(&author);
         if self.weight >= committee.quorum_threshold() {
             // Once quorum is reached, you might want to reset for the next round or trigger an action.
             return Ok(Some(TimeoutCert {
@@ -165,10 +165,10 @@ impl NoVoteAggregator {
         let author = no_vote_msg.author;
 
         // Ensure it is the first time this authority sends a no-vote message.
-        ensure!(self.used.insert(author.clone()), DagError::AuthorityReuse(author));
+        ensure!(self.used.insert(author), DagError::AuthorityReuse(author));
 
         self.no_votes.push((author.clone(), no_vote_msg.signature));
-        self.weight += committee.stake(author.clone());
+        self.weight += committee.stake(&author);
         if self.weight >= committee.quorum_threshold() {
             // Once quorum is reached, you might reset for the next round or use the certification as needed.
             return Ok(Some(NoVoteCert {

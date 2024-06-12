@@ -63,7 +63,7 @@ impl QuorumWaiter {
             let mut wait_for_quorum: FuturesUnordered<_> = handlers
                 .into_iter()
                 .map(|(name, handler)| {
-                    let stake = self.committee.stake(name.clone());
+                    let stake = self.committee.stake(&name);
                     Self::waiter(handler, stake)
                 })
                 .collect();

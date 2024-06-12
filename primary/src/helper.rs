@@ -43,7 +43,7 @@ impl Helper {
             // TODO [issue #195]: Do some accounting to prevent bad nodes from monopolizing our resources.
 
             // get the requestors address.
-            let address = match self.committee.primary(origin.clone()) {
+            let address = match self.committee.primary(&origin) {
                 Ok(x) => x.primary_to_primary,
                 Err(e) => {
                     warn!("Unexpected certificate request: {}", e);

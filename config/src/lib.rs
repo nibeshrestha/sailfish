@@ -151,7 +151,7 @@ impl Committee {
     }
 
     /// Return the stake of a specific authority.
-    pub fn stake(&self, name: PubKey) -> Stake {
+    pub fn stake(&self, name: &PubKey) -> Stake {
         self.authorities.get(&name).map_or_else(|| 0, |x| x.stake)
     }
 
@@ -160,7 +160,7 @@ impl Committee {
         self.authorities
             .iter()
             .filter(|(name, _)| name != &myself)
-            .map(|(name, authority)| (name.to_owned(), authority.stake))
+            .map(|(name, authority)| (*name, authority.stake))
             .collect()
     }
 
@@ -185,15 +185,15 @@ impl Committee {
     pub fn leader(&self, seed: usize) -> PubKey {
         let mut keys: Vec<_> = self.authorities.keys().cloned().collect();
         keys.sort();
-        keys[seed % self.size()].clone()
+        keys[seed % self.size()]
     }
 
     /// Returns the primary addresses of the target primary.
-    pub fn primary(&self, to: PubKey) -> Result<PrimaryAddresses, ConfigError> {
+    pub fn primary(&self, to: &PubKey) -> Result<PrimaryAddresses, ConfigError> {
         self.authorities
             .get(&to)
             .map(|x| x.primary.clone())
-            .ok_or_else(|| ConfigError::NotInCommittee(to))
+            .ok_or_else(|| ConfigError::NotInCommittee(*to))
     }
 
     /// Returns the addresses of all primaries except `myself`.
@@ -201,31 +201,31 @@ impl Committee {
         self.authorities
             .iter()
             .filter(|(name, _)| name != &myself)
-            .map(|(name, authority)| (name.to_owned(), authority.primary.clone()))
+            .map(|(name, authority)| (*name, authority.primary.clone()))
             .collect()
     }
 
     /// Returns the addresses of a specific worker (`id`) of a specific authority (`to`).
-    pub fn worker(&self, to: PubKey, id: &WorkerId) -> Result<WorkerAddresses, ConfigError> {
+    pub fn worker(&self, to: &PubKey, id: &WorkerId) -> Result<WorkerAddresses, ConfigError> {
         self.authorities
             .iter()
-            .find(|(name, _)| name == &&to)
+            .find(|(name, _)| name == &to)
             .map(|(_, authority)| authority)
-            .ok_or_else(|| ConfigError::NotInCommittee(to.to_owned()))?
+            .ok_or_else(|| ConfigError::NotInCommittee(*to))?
             .workers
             .iter()
             .find(|(worker_id, _)| worker_id == &id)
             .map(|(_, worker)| worker.clone())
-            .ok_or_else(|| ConfigError::NotInCommittee(to))
+            .ok_or_else(|| ConfigError::NotInCommittee(*to))
     }
 
     /// Returns the addresses of all our workers.
-    pub fn our_workers(&self, myself: PubKey) -> Result<Vec<WorkerAddresses>, ConfigError> {
+    pub fn our_workers(&self, myself: &PubKey) -> Result<Vec<WorkerAddresses>, ConfigError> {
         self.authorities
             .iter()
-            .find(|(name, _)| name == &&myself)
+            .find(|(name, _)| name == &myself)
             .map(|(_, authority)| authority)
-            .ok_or_else(|| ConfigError::NotInCommittee(myself))?
+            .ok_or_else(|| ConfigError::NotInCommittee(*myself))?
             .workers
             .values()
             .cloned()
@@ -248,7 +248,7 @@ impl Committee {
                     .workers
                     .iter()
                     .find(|(worker_id, _)| worker_id == &id)
-                    .map(|(_, addresses)| (name.to_owned(), addresses.clone()))
+                    .map(|(_, addresses)| (*name, addresses.clone()))
             })
             .collect()
     }
