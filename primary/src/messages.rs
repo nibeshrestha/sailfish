@@ -2,7 +2,7 @@
 use crate::error::{DagError, DagResult};
 use crate::primary::Round;
 use config::{Committee, WorkerId};
-use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
+use crypto::{combine_key_from_ids, BlsPubKey, BlsSign, BlsSignatureService, Digest, Hash, PublicKey, Signature, SignatureService};
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use serde::{Deserialize, Serialize};
@@ -241,23 +241,26 @@ pub struct Vote {
     pub round: Round,
     pub origin: PublicKey,
     pub author: PublicKey,
-    pub signature: Signature,
+    pub author_bls: BlsPubKey,
+    pub signature: BlsSign,
 }
 
 impl Vote {
     pub async fn new(
         header: &Header,
         author: &PublicKey,
-        signature_service: &mut SignatureService,
+        author_bls: &BlsPubKey,
+        bls_signature_service: &mut BlsSignatureService,
     ) -> Self {
         let vote = Self {
-            id: header.id.clone(),
+            id: header.digest(),
             round: header.round,
             origin: header.author,
             author: *author,
-            signature: Signature::default(),
+            author_bls: *author_bls,
+            signature: BlsSign::default(),
         };
-        let signature = signature_service.request_signature(vote.digest()).await;
+        let signature = bls_signature_service.request_signature(vote.digest()).await;
         Self { signature, ..vote }
     }
 
@@ -270,7 +273,7 @@ impl Vote {
 
         // Check the signature.
         self.signature
-            .verify(&self.digest(), &self.author)
+            .verify(&self.digest(), &self.author_bls)
             .map_err(DagError::from)
     }
 }
@@ -396,7 +399,7 @@ impl NoVoteCert {
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Certificate {
     pub header: Header,
-    pub votes: Vec<(PublicKey, Signature)>,
+    pub votes: (u128, BlsSign),
 }
 
 impl Certificate {
@@ -414,32 +417,44 @@ impl Certificate {
             .collect()
     }
 
-    pub fn verify(&self, committee: &Committee) -> DagResult<()> {
+    pub fn verify(&self, committee: &Committee,sorted_keys: &Vec<BlsPubKey>) -> DagResult<()> {
         // Genesis certificates are always valid.
         if Self::genesis(committee).contains(self) {
             return Ok(());
         }
 
-        // Check the embedded header.
-        self.header.verify(committee)?;
+        // // Check the embedded header.
+        // self.header.verify(committee)?;
 
-        // Ensure the certificate has a quorum.
-        let mut weight = 0;
-        let mut used = HashSet::new();
-        for (name, _) in self.votes.iter() {
-            ensure!(!used.contains(name), DagError::AuthorityReuse(*name));
-            let voting_rights = committee.stake(name);
-            ensure!(voting_rights > 0, DagError::UnknownAuthority(*name));
-            used.insert(*name);
-            weight += voting_rights;
+        // // Ensure the certificate has a quorum.
+        // let mut weight = 0;
+        // let mut used = HashSet::new();
+        // for (name, _) in self.votes.iter() {
+        //     ensure!(!used.contains(name), DagError::AuthorityReuse(*name));
+        //     let voting_rights = committee.stake(name);
+        //     ensure!(voting_rights > 0, DagError::UnknownAuthority(*name));
+        //     used.insert(*name);
+        //     weight += voting_rights;
+        // }
+        // ensure!(
+        //     weight >= committee.quorum_threshold(),
+        //     DagError::CertificateRequiresQuorum
+        // );
+
+        let mut ids = Vec::new();
+
+        for idx in 0..committee.size() {
+            if self.votes.0 & (1 << idx) != 0 {
+                ids.push(idx);
+            }
         }
-        ensure!(
-            weight >= committee.quorum_threshold(),
-            DagError::CertificateRequiresQuorum
-        );
 
+        // let pks: Vec<BlsPubKey> = ids.iter().map(|i| sorted_keys[*i]).collect();
+        let agg_pk = combine_key_from_ids(sorted_keys,&ids);
+
+        BlsSign::verify_batch(&self.digest(), agg_pk, self.votes.1).map_err(DagError::from)
         // Check the signatures.
-        Signature::verify_batch(&self.digest(), &self.votes).map_err(DagError::from)
+        // Signature::verify_batch(&self.digest(), &self.votes).map_err(DagError::from)
     }
 
     pub fn round(&self) -> Round {
@@ -454,7 +469,7 @@ impl Certificate {
 impl Hash for Certificate {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
-        hasher.update(&self.header.id);
+        hasher.update(&self.header.digest());
         hasher.update(self.round().to_le_bytes());
         hasher.update(&self.origin());
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())

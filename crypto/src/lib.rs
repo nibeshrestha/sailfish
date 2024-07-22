@@ -1,4 +1,9 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
+use blsttc::{
+    G1Affine, G1Projective, G2Affine, G2Projective, PublicKeyG2,
+    PublicKeyShareG2 , SecretKeySet, SecretKeyShare,
+    SignatureG1, SignatureShareG1,
+};
 use ed25519_dalek as dalek;
 use ed25519_dalek::ed25519;
 use ed25519_dalek::Signer as _;
@@ -16,6 +21,7 @@ use tokio::sync::oneshot;
 pub mod crypto_tests;
 
 pub type CryptoError = ed25519::Error;
+pub type BlsError = blsttc::Error;
 
 /// Represents a hash digest (32 bytes).
 #[derive(Hash, PartialEq, Default, Eq, Clone, Deserialize, Serialize, Ord, PartialOrd)]
@@ -239,6 +245,310 @@ impl SignatureService {
     }
 
     pub async fn request_signature(&mut self, digest: Digest) -> Signature {
+        let (sender, receiver): (oneshot::Sender<_>, oneshot::Receiver<_>) = oneshot::channel();
+        if let Err(e) = self.channel.send((digest, sender)).await {
+            panic!("Failed to send message Signature Service: {}", e);
+        }
+        receiver
+            .await
+            .expect("Failed to receive signature from Signature Service")
+    }
+}
+
+
+// #######################################################################
+// BLS implementation
+
+#[derive(Serialize, Deserialize)]
+pub struct NodeKeyInfo {
+    /// The node's public key (and identifier).
+    pub name: String,
+    /// The node's secret key.
+    pub secret: String,
+}
+
+/// Represents a public key (in bytes).
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub struct BlsPubKey(pub [u8; 96]);
+
+impl Default for BlsPubKey {
+    fn default() -> BlsPubKey {
+        Self([0; 96])
+    }
+}
+
+impl BlsPubKey {
+    pub fn encode_base64(&self) -> String {
+        base64::encode(&self.0[..])
+    }
+
+    pub fn decode_base64(s: &str) -> Result<Self, base64::DecodeError> {
+        let bytes = base64::decode(s)?;
+        let array = bytes[..96]
+            .try_into()
+            .map_err(|_| base64::DecodeError::InvalidLength)?;
+        Ok(Self(array))
+    }
+
+    pub fn to_pubkey(&self) -> PublicKeyShareG2 {
+        let publickey = PublicKeyShareG2::from_bytes(self.0).unwrap();
+        publickey
+    }
+}
+
+impl fmt::Debug for BlsPubKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.encode_base64())
+    }
+}
+
+impl fmt::Display for BlsPubKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.encode_base64().get(0..16).unwrap())
+    }
+}
+
+impl Serialize for BlsPubKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        serializer.serialize_str(&self.encode_base64())
+    }
+}
+
+impl<'de> Deserialize<'de> for BlsPubKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let value = Self::decode_base64(&s).map_err(|e| de::Error::custom(e.to_string()))?;
+        Ok(value)
+    }
+}
+
+impl AsRef<[u8]> for BlsPubKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+/// Represents a secret key (in bytes).
+#[derive(Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
+pub struct BlsPriKey(pub [u8; 32]);
+
+impl BlsPriKey {
+    pub fn encode_base64(&self) -> String {
+        base64::encode(&self.0[..])
+    }
+
+    pub fn decode_base64(s: &str) -> Result<Self, base64::DecodeError> {
+        let bytes = base64::decode(s)?;
+        let array = bytes[..32]
+            .try_into()
+            .map_err(|_| base64::DecodeError::InvalidLength)?;
+        Ok(Self(array))
+    }
+}
+
+impl fmt::Debug for BlsPriKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.encode_base64())
+    }
+}
+
+impl fmt::Display for BlsPriKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.encode_base64().get(0..16).unwrap())
+    }
+}
+
+impl Serialize for BlsPriKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        serializer.serialize_str(&self.encode_base64())
+    }
+}
+
+impl<'de> Deserialize<'de> for BlsPriKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let value = Self::decode_base64(&s).map_err(|e| de::Error::custom(e.to_string()))?;
+        Ok(value)
+    }
+}
+
+impl AsRef<[u8]> for BlsPriKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl Drop for BlsPriKey {
+    fn drop(&mut self) {
+        self.0.iter_mut().for_each(|x| *x = 0);
+    }
+}
+
+pub fn create_bls_key_pairs(nodes: usize, threshold: usize, path: String) {
+    // Generate a set of secret key shares
+    let mut rng = blsttc::rand::rngs::OsRng;
+    let sk_set = SecretKeySet::random(threshold, &mut rng);
+    // Get the corresponding public key set
+    let pk_set_g2 = sk_set.public_keys_g2();
+
+    for node_id in 0..nodes {
+        let sk_share = sk_set.secret_key_share(node_id);
+        let pk_share_g2 = pk_set_g2.public_key_share(node_id);
+
+        let pubkeyshare = BlsPubKey(pk_share_g2.to_bytes());
+        let seckeyshare = BlsPriKey(sk_share.to_bytes());
+
+        let node_info = NodeKeyInfo {
+            name: pubkeyshare.encode_base64(),
+            secret: seckeyshare.encode_base64(),
+        };
+
+        let id = node_id.to_string();
+        let path = path.replace('x', id.as_str());
+        let json_data = serde_json::to_string_pretty(&node_info).unwrap();
+        std::fs::write(path, json_data).expect("Failed to write JSON data to file");
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct BlsSign(pub [u8; 48]);
+
+impl Default for BlsSign {
+    fn default() -> BlsSign {
+        Self([0; 48])
+    }
+}
+
+impl Serialize for BlsSign {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        serializer.serialize_str(&self.encode_base64())
+    }
+}
+
+impl<'de> Deserialize<'de> for BlsSign {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let value = Self::decode_base64(&s).map_err(|e| de::Error::custom(e.to_string()))?;
+        Ok(value)
+    }
+}
+
+impl BlsSign {
+    pub fn new(digest: &Digest, secret: &BlsPriKey) -> Self {
+        let sks = SecretKeyShare::from_bytes(secret.0).unwrap();
+        let sig = sks.sign_g1(&digest).to_bytes();
+        BlsSign(sig)
+    }
+
+    pub fn encode_base64(&self) -> String {
+        base64::encode(&self.0[..])
+    }
+
+    pub fn decode_base64(s: &str) -> Result<Self, base64::DecodeError> {
+        let bytes = base64::decode(s)?;
+        let array = bytes[..48]
+            .try_into()
+            .map_err(|_| base64::DecodeError::InvalidLength)?;
+        Ok(Self(array))
+    }
+
+    pub fn as_signature(&self) -> SignatureShareG1 {
+        let sign: SignatureShareG1 = SignatureShareG1::from_bytes(self.0).unwrap();
+        sign
+    }
+
+    pub fn verify(&self, digest: &Digest, public_key: &BlsPubKey) -> Result<(), BlsError> {
+        let signature = SignatureShareG1::from_bytes(self.0).unwrap();
+        let key = PublicKeyShareG2::from_bytes(public_key.0).unwrap();
+        let res = key.verify(&signature, &digest);
+        if res {
+            Ok(())
+        } else {
+            Err(BlsError::InvalidBytes)
+        }
+
+        //Ok(())
+    }
+
+    pub fn verify_batch(digest: &Digest, pubkey: BlsPubKey, sign: BlsSign) -> Result<(), BlsError> {
+        let signature = SignatureShareG1::from_bytes(sign.0).unwrap();
+        let key = PublicKeyShareG2::from_bytes(pubkey.0).unwrap();
+        let res = key.verify(&signature, &digest);
+        if res {
+            Ok(())
+        } else {
+            Err(BlsError::InvalidBytes)
+        }
+    }
+}
+
+pub fn aggregate_sign(agg_sig: SignatureShareG1, new_sign: SignatureShareG1) -> SignatureShareG1 {
+    let agg_sign = G1Affine::from(agg_sig.0 .0 + G1Projective::from(new_sign.0 .0));
+    let sign = SignatureShareG1(SignatureG1(agg_sign));
+    sign
+}
+
+pub fn aggregate_pubkey(
+    agg_key: PublicKeyShareG2,
+    new_key: PublicKeyShareG2,
+) -> PublicKeyShareG2 {
+    let agg_key = G2Affine::from(agg_key.0 .0 + G2Projective::from(new_key.0 .0));
+    let key = PublicKeyShareG2(PublicKeyG2(agg_key));
+    key
+}
+
+pub fn combine_key_from_ids(keys: &Vec<BlsPubKey>,ids: &Vec<usize>) -> BlsPubKey {
+    if keys.len() == 1 {
+        keys[ids[0]]
+    } else {
+        let mut agg_key = keys[ids[0]].to_pubkey();
+        for i in 1..ids.len() {
+            let new_key =
+                G2Affine::from(agg_key.0 .0 + G2Projective::from(keys[ids[i]].to_pubkey().0 .0));
+            agg_key = PublicKeyShareG2(PublicKeyG2(new_key));
+        }
+        BlsPubKey(agg_key.to_bytes())
+    }
+}
+
+/// This service holds the node's private key. It takes digests as input and returns a signature
+/// over the digest (through a oneshot channel).
+#[derive(Clone)]
+pub struct BlsSignatureService {
+    channel: Sender<(Digest, oneshot::Sender<BlsSign>)>,
+}
+
+impl BlsSignatureService {
+    pub fn new(secret: BlsPriKey) -> Self {
+        let (tx, mut rx): (Sender<(_, oneshot::Sender<_>)>, _) = channel(100);
+        tokio::spawn(async move {
+            while let Some((digest, sender)) = rx.recv().await {
+                let signature = BlsSign::new(&digest, &secret);
+                let _ = sender.send(signature);
+            }
+        });
+        Self { channel: tx }
+    }
+
+    pub async fn request_signature(&mut self, digest: Digest) -> BlsSign {
         let (sender, receiver): (oneshot::Sender<_>, oneshot::Receiver<_>) = oneshot::channel();
         if let Err(e) = self.channel.send((digest, sender)).await {
             panic!("Failed to send message Signature Service: {}", e);

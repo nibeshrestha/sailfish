@@ -1,23 +1,32 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::messages::{Certificate, Header, Timeout, TimeoutCert, Vote, NoVoteMsg, NoVoteCert};
+use blsttc::SignatureShareG1;
 use config::{Committee, Stake};
-use crypto::{PublicKey, Signature};
+use crypto::{aggregate_sign, BlsPubKey, BlsSign, PublicKey, Signature};
+use log::info;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 /// Aggregates votes for a particular header into a certificate.
 pub struct VotesAggregator {
     weight: Stake,
-    votes: Vec<(PublicKey, Signature)>,
+    votes: Vec<(BlsPubKey, BlsSign)>,
     used: HashSet<PublicKey>,
+    agg_sign: BlsSign,
+    pk_bit_vec: u128,
+    sorted_keys: Arc<Vec<BlsPubKey>>,
 }
 
 impl VotesAggregator {
-    pub fn new() -> Self {
+    pub fn new(sorted_keys: Arc<Vec<BlsPubKey>>) -> Self {
         Self {
             weight: 0,
             votes: Vec::new(),
             used: HashSet::new(),
+            agg_sign: BlsSign::default(),
+            pk_bit_vec: 0,
+            sorted_keys: sorted_keys,
         }
     }
 
@@ -28,14 +37,35 @@ impl VotesAggregator {
         header: &Header,
     ) -> DagResult<Option<Certificate>> {
         let author = vote.author;
+        let author_bls = vote.author_bls;
 
         // Ensure it is the first time this authority votes.
         ensure!(self.used.insert(author), DagError::AuthorityReuse(author));
+        // //to check if we have received vote from the current round leader
+        // let leader = committee.leader(vote.round as usize);
+        // if !self.used.contains(&leader){
+        //     return Ok(None);
+        // }
 
-        self.votes.push((author, vote.signature));
-        self.weight += committee.stake(&author);
+        self.votes.push((author_bls, vote.signature));
+        self.weight += committee.stake(&author);        
+    
+        if self.votes.len() == 1 {
+            self.agg_sign = vote.signature;
+        
+            //adding it to bitvec
+            self.pk_bit_vec |= 1 << self.sorted_keys.binary_search(&vote.author_bls).unwrap();
 
-        //to check if we have received vote from the current round leader
+        } else if self.votes.len() >= 2 {
+
+            let new_agg_sign =
+                aggregate_sign(self.agg_sign.as_signature(), vote.signature.as_signature());
+            self.agg_sign = BlsSign(new_agg_sign.to_bytes());
+
+            //adding node id to bitvec
+            self.pk_bit_vec |= 1 << self.sorted_keys.binary_search(&vote.author_bls).unwrap();
+        }
+
         let leader = committee.leader(vote.round as usize);
         if !self.used.contains(&leader){
             return Ok(None);
@@ -45,7 +75,7 @@ impl VotesAggregator {
             self.weight = 0; // Ensures quorum is only reached once.
             return Ok(Some(Certificate {
                 header: header.clone(),
-                votes: self.votes.clone(),
+                votes: (self.pk_bit_vec, self.agg_sign),
             }));
         }
         Ok(None)

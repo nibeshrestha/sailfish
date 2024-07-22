@@ -21,28 +21,43 @@ class CommandMaker:
         return 'cargo build --quiet --release --features benchmark'
 
     @staticmethod
-    def generate_key(filename):
+    def generate_ed_key(filename):
         assert isinstance(filename, str)
         return f'./node generate_keys --filename {filename}'
+    
+    @staticmethod
+    def generate_bls_key(filename):
+        assert isinstance(filename, str)
+        return f'./node generate_bls_keys --filename {filename}'
 
     @staticmethod
-    def run_primary(keys, committee, store, parameters, debug=False):
-        assert isinstance(keys, str)
+    def generate_bls_keys(total_nodes, threshold_val, path):
+        assert isinstance(total_nodes, int)
+        assert isinstance(threshold_val, int)
+        assert isinstance(path, str)
+        return f'./node generate_bls_keys --nodes {total_nodes} --threshold {threshold_val} --path {path}'
+
+
+    @staticmethod
+    def run_primary(edkeys,blskeys, committee, store, parameters, debug=False):
+        assert isinstance(edkeys, str)
+        assert isinstance(blskeys, str)
         assert isinstance(committee, str)
         assert isinstance(parameters, str)
         assert isinstance(debug, bool)
         v = '-vvv' if debug else '-vv'
-        return (f'./node {v} run --keys {keys} --committee {committee} '
+        return (f'./node {v} run --edkeys {edkeys} --blskeys {blskeys} --committee {committee} '
                 f'--store {store} --parameters {parameters} primary')
 
     @staticmethod
-    def run_worker(keys, committee, store, parameters, id, debug=False):
-        assert isinstance(keys, str)
+    def run_worker(edkeys, blskeys,committee, store, parameters, id, debug=False):
+        assert isinstance(edkeys, str)
+        assert isinstance(blskeys, str)
         assert isinstance(committee, str)
         assert isinstance(parameters, str)
         assert isinstance(debug, bool)
         v = '-vvv' if debug else '-vv'
-        return (f'./node {v} run --keys {keys} --committee {committee} '
+        return (f'./node {v} run --edkeys {edkeys} --blskeys {blskeys} --committee {committee} '
                 f'--store {store} --parameters {parameters} worker --id {id}')
 
     @staticmethod

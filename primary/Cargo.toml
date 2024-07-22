@@ -18,6 +18,8 @@ env_logger = "0.7.1"
 log = "0.4.11"
 async-recursion = "0.3.2"
 async-trait = "0.1.50"
+blsttc = {package = "blsttc", git = "ssh://git@github.com/Entropy-Foundation/blsttc-supra.git", rev = "ae4bce5002e8693f879599f6267a566f53c2c87e"}
+
 
 crypto = { path = "../crypto" }
 store = { path = "../store" }

@@ -11,8 +11,8 @@ use crate::proposer::Proposer;
 use crate::synchronizer::Synchronizer;
 use async_trait::async_trait;
 use bytes::Bytes;
-use config::{Committee, KeyPair, Parameters, WorkerId};
-use crypto::{Digest, PublicKey, SignatureService};
+use config::{BlsKeyPair, Committee, KeyPair, Parameters, WorkerId};
+use crypto::{BlsPubKey, BlsSignatureService, Digest, PublicKey, SignatureService};
 use futures::sink::SinkExt as _;
 use log::info;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
@@ -62,7 +62,9 @@ pub struct Primary;
 impl Primary {
     pub fn spawn(
         keypair: KeyPair,
+        bls_keypair: BlsKeyPair,
         committee: Committee,
+        sorted_keys: Vec<BlsPubKey>,
         parameters: Parameters,
         store: Store,
         tx_consensus: Sender<Certificate>,
@@ -89,7 +91,9 @@ impl Primary {
 
         // Parse the public and secret key of this authority.
         let name = keypair.name;
+        let name_bls = bls_keypair.name;
         let secret = keypair.secret;
+        let bls_secret = bls_keypair.secret;
 
         // Atomic variable use to synchronizer all tasks with the latest consensus round. This is only
         // used for cleanup. The only tasks that write into this variable is `GarbageCollector`.
@@ -144,14 +148,18 @@ impl Primary {
 
         // The `SignatureService` is used to require signatures on specific digests.
         let signature_service = SignatureService::new(secret);
-
+        let bls_signature_service = BlsSignatureService::new(bls_secret);
+        let sorted_keys = Arc::new(sorted_keys);
         // The `Core` receives and handles headers, votes, and certificates from the other primaries.
         Core::spawn(
             name,
+            name_bls,
             committee.clone(),
+            sorted_keys,
             store.clone(),
             synchronizer,
             signature_service.clone(),
+            bls_signature_service,
             consensus_round.clone(),
             parameters.gc_depth,
             /* rx_primaries */ rx_primary_messages,

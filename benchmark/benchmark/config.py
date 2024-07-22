@@ -6,8 +6,19 @@ from collections import OrderedDict
 class ConfigError(Exception):
     pass
 
+class EdKey:
+    def __init__(self, name, secret):
+        self.name = name
+        self.secret = secret
 
-class Key:
+    @classmethod
+    def from_file(cls, filename):
+        assert isinstance(filename, str)
+        with open(filename, 'r') as f:
+            data = load(f)
+        return cls(data['name'], data['secret'])
+
+class BlsKey:
     def __init__(self, name, secret):
         self.name = name
         self.secret = secret
@@ -45,7 +56,7 @@ class Committee:
     def __init__(self, json):
         self.json = json
 
-    def address_list_to_json(addresses, base_port, faults):
+    def address_list_to_json(addresses, base_port, faults,bls_pubkeys_g2):
         ''' The `addresses` field looks as follows:
             { 
                 "name": ["host", "host", ...],
@@ -68,7 +79,7 @@ class Committee:
         num_authorities = len(addresses)
 
         for i, (name, hosts) in enumerate(addresses.items()):
-            port = base_port
+            # port = base_port
             host = hosts.pop(0)
             consensus_addr = {
                 'consensus_to_consensus': f'{host}:{port}',
@@ -92,6 +103,7 @@ class Committee:
 
             json['authorities'][name] = {
                 # Corresponds to the determination of faulty nodes in primary_addresses.
+                'bls_pubkey_g2': bls_pubkeys_g2[i],
                 'is_honest': i < num_authorities - faults,
                 'stake': 1,
                 'consensus': consensus_addr,
@@ -101,8 +113,8 @@ class Committee:
         return json
 
     @classmethod
-    def from_address_list(cls, addresses, base_port, faults):
-        return cls(Committee.address_list_to_json(addresses, base_port, faults))
+    def from_address_list(cls, addresses, base_port, faults,bls_pubkeys_g2):
+        return cls(Committee.address_list_to_json(addresses, base_port, faults,bls_pubkeys_g2))
 
     def primary_addresses(self, faults=0):
         ''' Returns an ordered list of primaries' addresses. '''
@@ -181,13 +193,13 @@ class Committee:
 
 
 class LocalCommittee(Committee):
-    def __init__(self, names, port, workers, faults):
+    def __init__(self, names, port, workers, faults, bls_pubkeys_g2):
         assert isinstance(names, list)
         assert all(isinstance(x, str) for x in names)
         assert isinstance(port, int)
         assert isinstance(workers, int) and workers > 0
         addresses = OrderedDict((x, ['127.0.0.1']*(1+workers)) for x in names)
-        json = Committee.address_list_to_json(addresses, port, faults)
+        json = Committee.address_list_to_json(addresses, port, faults, bls_pubkeys_g2)
         super().__init__(json)
 
 
