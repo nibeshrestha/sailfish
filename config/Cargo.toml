@@ -10,5 +10,7 @@ serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0.24"
 serde_json = "1.0.64"
 log = "0.4.14"
+blsttc = {package = "blsttc", git = "ssh://git@github.com/naitik-supraoracles/blsttc-supra-for-moonshot.git", rev = "4ca8a9d97893e2dfd74eee427400ac119e3e9dd9"}
+
 
 crypto = { path = "../crypto" }

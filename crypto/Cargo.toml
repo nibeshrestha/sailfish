@@ -11,6 +11,6 @@ ed25519-dalek = { version = "1.0.1", features = ["batch"] }
 serde = { version = "1.0", features = ["derive"] }
 rand = "0.7.3"
 base64 = "0.13.0"
-blsttc = {package = "blsttc", git = "ssh://git@github.com/Entropy-Foundation/blsttc-supra.git", rev = "ae4bce5002e8693f879599f6267a566f53c2c87e"}
+blsttc = {package = "blsttc", git = "ssh://git@github.com/naitik-supraoracles/blsttc-supra-for-moonshot.git", rev = "4ca8a9d97893e2dfd74eee427400ac119e3e9dd9"}
 serde_json = "1.0"
 zeroize = "1.5.7"

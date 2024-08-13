@@ -1,5 +1,6 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crypto::{generate_production_keypair, BlsPubKey, BlsPriKey, PublicKey, SecretKey};
+use crypto::{generate_production_keypair, PublicKey, SecretKey};
+use blsttc::{PublicKeyShareG2,SecretKeyShare};
 use log::info;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -129,7 +130,7 @@ pub struct WorkerAddresses {
 
 #[derive(Clone, Deserialize)]
 pub struct Authority {
-    pub bls_pubkey_g2 : BlsPubKey,
+    pub bls_pubkey_g2 : PublicKeyShareG2,
     /// The voting power of this authority.
     pub stake: Stake,
     /// The network addresses of the primary.
@@ -260,8 +261,12 @@ impl Committee {
             .map(|(name, _)| (name.clone()))
             .collect()
     }
-    pub fn get_bls_public_keys(&self) -> Vec<BlsPubKey> {
+    pub fn get_bls_public_keys(&self) -> Vec<PublicKeyShareG2> {
         self.authorities.iter().map(|(_, x)| x.bls_pubkey_g2).collect()
+    }
+
+    pub fn get_bls_public_g2(&self, name: &PublicKey) -> PublicKeyShareG2 {
+        self.authorities.get(name).map(|x| x.bls_pubkey_g2).unwrap()
     }
 }
 
@@ -296,9 +301,9 @@ impl Default for KeyPair {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct BlsKeyPair {
     /// The node's public key (and identifier).
-    pub name: BlsPubKey,
+    pub nameg2: PublicKeyShareG2,
     /// The node's secret key.
-    pub secret: BlsPriKey,
+    pub secret: SecretKeyShare,
 }
 
 impl Import for BlsKeyPair {}
@@ -313,8 +318,8 @@ impl BlsKeyPair {
 impl Default for BlsKeyPair {
     fn default() -> BlsKeyPair {
         Self {
-            name: BlsPubKey([0; 96]),
-            secret: BlsPriKey([0; 32]),
+            nameg2: PublicKeyShareG2::default(),
+            secret: SecretKeyShare::default(),
         }
     }
 }

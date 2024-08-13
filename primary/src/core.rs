@@ -7,8 +7,9 @@ use crate::synchronizer::Synchronizer;
 use async_recursion::async_recursion;
 use bytes::Bytes;
 use config::Committee;
-use crypto::{BlsPubKey, BlsSignatureService, Hash as _};
+use crypto::{BlsSignatureService, Hash as _};
 use crypto::{Digest, PublicKey, SignatureService};
+use blsttc::PublicKeyShareG2;
 use log::{debug, error, warn};
 use network::{CancelHandler, ReliableSender};
 use std::collections::{HashMap, HashSet};
@@ -24,10 +25,10 @@ pub mod core_tests;
 pub struct Core {
     /// The public key of this primary.
     name: PublicKey,
-    name_bls: BlsPubKey,
+    name_bls: PublicKeyShareG2,
     /// The committee information.
     committee: Committee,
-    sorted_keys: Arc<Vec<BlsPubKey>>,
+    sorted_keys: Arc<Vec<PublicKeyShareG2>>,
     /// The persistent storage.
     store: Store,
     /// Handles synchronization with other nodes and our workers.
@@ -91,9 +92,9 @@ impl Core {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         name: PublicKey,
-        name_bls: BlsPubKey,
+        name_bls: PublicKeyShareG2,
         committee: Committee,
-        sorted_keys: Arc<Vec<BlsPubKey>>,
+        sorted_keys: Arc<Vec<PublicKeyShareG2>>,
         store: Store,
         synchronizer: Synchronizer,
         signature_service: SignatureService,
@@ -213,7 +214,7 @@ impl Core {
             .or_insert(header.clone());
         self.processing_vote_aggregators
             .entry(header.id.clone())
-            .or_insert(VotesAggregator::new(sorted_keys));
+            .or_insert(VotesAggregator::new(sorted_keys, self.committee.size()));
 
         // Broadcast the new header in a reliable manner.
         let addresses = self
@@ -297,27 +298,27 @@ impl Core {
             .insert(header.author)
         {
             // Make a vote and send it to all nodes
-            let vote = Vote::new(header, &self.name, &self.name_bls, &mut self.bls_signature_service).await;
+            let vote = Vote::new(header, &self.name, &mut self.bls_signature_service).await;
             debug!("Created {:?}", vote);
-            if header.author == self.name {
-                self.process_vote(vote)
-                    .await
-                    .expect("Failed to process our own vote");
-            } else {
-                let addresses = self
-                    .committee
-                    .others_primaries(&self.name)
-                    .iter()
-                    .map(|(_, x)| x.primary_to_primary)
-                    .collect();
-                let bytes = bincode::serialize(&PrimaryMessage::Vote(vote))
-                    .expect("Failed to serialize our own vote");
-                let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
-                self.cancel_handlers
-                    .entry(header.round)
-                    .or_insert_with(Vec::new)
-                    .extend(handlers);
-            }
+        
+            self.process_vote(vote.clone())
+                .await
+                .expect("Failed to process our own vote");
+        
+            let addresses = self
+                .committee
+                .others_primaries(&self.name)
+                .iter()
+                .map(|(_, x)| x.primary_to_primary)
+                .collect();
+            let bytes = bincode::serialize(&PrimaryMessage::Vote(vote))
+                .expect("Failed to serialize our own vote");
+            let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
+            self.cancel_handlers
+                .entry(header.round)
+                .or_insert_with(Vec::new)
+                .extend(handlers);
+            
         }
         Ok(())
     }
@@ -530,9 +531,9 @@ impl Core {
                 DagError::UnexpectedVote(vote.id.clone())
             );
         }
-
+        Ok(())
         // Verify the vote.
-        vote.verify(&self.committee).map_err(DagError::from)
+        // vote.verify(&self.committee).map_err(DagError::from)
     }
 
     fn sanitize_certificate(&mut self, certificate: &Certificate) -> DagResult<()> {
@@ -543,6 +544,7 @@ impl Core {
 
         // Verify the certificate (and the embedded header).
         certificate.verify(&self.committee,&self.sorted_keys).map_err(DagError::from)
+        // Ok(())
     }
 
     // Main loop listening to incoming messages.

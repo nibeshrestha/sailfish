@@ -12,7 +12,8 @@ use crate::synchronizer::Synchronizer;
 use async_trait::async_trait;
 use bytes::Bytes;
 use config::{BlsKeyPair, Committee, KeyPair, Parameters, WorkerId};
-use crypto::{BlsPubKey, BlsSignatureService, Digest, PublicKey, SignatureService};
+use crypto::{BlsSignatureService, Digest, PublicKey, SignatureService};
+use blsttc::PublicKeyShareG2;
 use futures::sink::SinkExt as _;
 use log::info;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
@@ -36,6 +37,7 @@ pub enum PrimaryMessage {
     NoVoteMsg(NoVoteMsg),
     Vote(Vote),
     Certificate(Certificate),
+    VerifiedCertificate(Certificate),
     CertificatesRequest(Vec<Digest>, /* requestor */ PublicKey),
 }
 
@@ -64,7 +66,7 @@ impl Primary {
         keypair: KeyPair,
         bls_keypair: BlsKeyPair,
         committee: Committee,
-        sorted_keys: Vec<BlsPubKey>,
+        sorted_keys: Vec<PublicKeyShareG2>,
         parameters: Parameters,
         store: Store,
         tx_consensus: Sender<Certificate>,
@@ -91,7 +93,7 @@ impl Primary {
 
         // Parse the public and secret key of this authority.
         let name = keypair.name;
-        let name_bls = bls_keypair.name;
+        let name_bls = bls_keypair.nameg2;
         let secret = keypair.secret;
         let bls_secret = bls_keypair.secret;
 

@@ -76,7 +76,7 @@ class LocalBench:
                 bls_keys += [BlsKey.from_file(filename)]
 
             names = [x.name for x in keys]
-            bls_pubkeys_g2 = [_.name for _ in bls_keys]
+            bls_pubkeys_g2 = [_.nameg2 for _ in bls_keys]
             committee = LocalCommittee(names, self.BASE_PORT, self.workers, self.bench_parameters.faults, bls_pubkeys_g2)
             committee.print(PathMaker.committee_file())
 

@@ -322,7 +322,7 @@ class Bench:
 
             
         names = [x.name for x in keys]
-        bls_pubkeys_g2 = [_.name for _ in bls_keys]
+        bls_pubkeys_g2 = [_.nameg2 for _ in bls_keys]
 
         if bench_parameters.collocate:
             workers = bench_parameters.workers

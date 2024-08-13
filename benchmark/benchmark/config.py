@@ -20,7 +20,7 @@ class EdKey:
 
 class BlsKey:
     def __init__(self, name, secret):
-        self.name = name
+        self.nameg2 = name
         self.secret = secret
 
     @classmethod
@@ -28,7 +28,7 @@ class BlsKey:
         assert isinstance(filename, str)
         with open(filename, 'r') as f:
             data = load(f)
-        return cls(data['name'], data['secret'])
+        return cls(data['nameg2'], data['secret'])
 
 
 class Committee:

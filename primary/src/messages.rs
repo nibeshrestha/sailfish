@@ -2,7 +2,8 @@
 use crate::error::{DagError, DagResult};
 use crate::primary::Round;
 use config::{Committee, WorkerId};
-use crypto::{combine_key_from_ids, BlsPubKey, BlsSign, BlsSignatureService, Digest, Hash, PublicKey, Signature, SignatureService};
+use crypto::{combine_key_from_ids, BlsSignatureService, Digest, Hash, PublicKey, Signature, SignatureService};
+use blsttc::{PublicKeyShareG2,SignatureShareG1};
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use serde::{Deserialize, Serialize};
@@ -241,15 +242,13 @@ pub struct Vote {
     pub round: Round,
     pub origin: PublicKey,
     pub author: PublicKey,
-    pub author_bls: BlsPubKey,
-    pub signature: BlsSign,
+    pub signature: SignatureShareG1,
 }
 
 impl Vote {
     pub async fn new(
         header: &Header,
         author: &PublicKey,
-        author_bls: &BlsPubKey,
         bls_signature_service: &mut BlsSignatureService,
     ) -> Self {
         let vote = Self {
@@ -257,8 +256,7 @@ impl Vote {
             round: header.round,
             origin: header.author,
             author: *author,
-            author_bls: *author_bls,
-            signature: BlsSign::default(),
+            signature: SignatureShareG1::default(),
         };
         let signature = bls_signature_service.request_signature(vote.digest()).await;
         Self { signature, ..vote }
@@ -271,9 +269,10 @@ impl Vote {
             DagError::UnknownAuthority(self.author)
         );
 
+        let author_bls = committee.get_bls_public_g2(&self.author);
+
         // Check the signature.
-        self.signature
-            .verify(&self.digest(), &self.author_bls)
+        SignatureShareG1::verify_batch(&self.digest().0, &author_bls, &self.signature)
             .map_err(DagError::from)
     }
 }
@@ -399,7 +398,7 @@ impl NoVoteCert {
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Certificate {
     pub header: Header,
-    pub votes: (u128, BlsSign),
+    pub votes: (Vec<u128>, SignatureShareG1),
 }
 
 impl Certificate {
@@ -417,7 +416,7 @@ impl Certificate {
             .collect()
     }
 
-    pub fn verify(&self, committee: &Committee,sorted_keys: &Vec<BlsPubKey>) -> DagResult<()> {
+    pub fn verify(&self, committee: &Committee,sorted_keys: &Vec<PublicKeyShareG2>) -> DagResult<()> {
         // Genesis certificates are always valid.
         if Self::genesis(committee).contains(self) {
             return Ok(());
@@ -442,19 +441,19 @@ impl Certificate {
         // );
 
         let mut ids = Vec::new();
-
         for idx in 0..committee.size() {
-            if self.votes.0 & (1 << idx) != 0 {
+            let x = idx / 128;
+            let chunk = self.votes.0[x];
+            let ridx = idx - x * 128;
+            if chunk & 1 << ridx != 0 {
                 ids.push(idx);
             }
         }
+        // let pks: Vec<PublicKeyShareG2> = ids.iter().map(|i| sorted_keys[*i]).collect();
+        let agg_pk = combine_key_from_ids(ids,&sorted_keys);
 
-        // let pks: Vec<BlsPubKey> = ids.iter().map(|i| sorted_keys[*i]).collect();
-        let agg_pk = combine_key_from_ids(sorted_keys,&ids);
-
-        BlsSign::verify_batch(&self.digest(), agg_pk, self.votes.1).map_err(DagError::from)
-        // Check the signatures.
-        // Signature::verify_batch(&self.digest(), &self.votes).map_err(DagError::from)
+        SignatureShareG1::verify_batch(&self.digest().0, &agg_pk,&self.votes.1).map_err(DagError::from)
+        
     }
 
     pub fn round(&self) -> Round {

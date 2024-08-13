@@ -1,9 +1,9 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::messages::{Certificate, Header, Timeout, TimeoutCert, Vote, NoVoteMsg, NoVoteCert};
-use blsttc::SignatureShareG1;
 use config::{Committee, Stake};
-use crypto::{aggregate_sign, BlsPubKey, BlsSign, PublicKey, Signature};
+use crypto::{aggregate_sign, combine_key_from_ids, PublicKey, Signature, Digest, Hash};
+use blsttc::{PublicKeyShareG2,SignatureShareG1};
 use log::info;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -11,22 +11,22 @@ use std::sync::Arc;
 /// Aggregates votes for a particular header into a certificate.
 pub struct VotesAggregator {
     weight: Stake,
-    votes: Vec<(BlsPubKey, BlsSign)>,
+    votes: Vec<(PublicKeyShareG2, SignatureShareG1)>,
     used: HashSet<PublicKey>,
-    agg_sign: BlsSign,
-    pk_bit_vec: u128,
-    sorted_keys: Arc<Vec<BlsPubKey>>,
+    agg_sign: SignatureShareG1,
+    pk_bit_vec: Vec<u128>,
+    sorted_keys: Arc<Vec<PublicKeyShareG2>>,
 }
 
 impl VotesAggregator {
-    pub fn new(sorted_keys: Arc<Vec<BlsPubKey>>) -> Self {
+    pub fn new(sorted_keys: Arc<Vec<PublicKeyShareG2>>, total_nodes: usize) -> Self {
         Self {
             weight: 0,
             votes: Vec::new(),
             used: HashSet::new(),
-            agg_sign: BlsSign::default(),
-            pk_bit_vec: 0,
-            sorted_keys: sorted_keys,
+            agg_sign: SignatureShareG1::default(),
+            pk_bit_vec: vec![0; (total_nodes + 127) / 128],
+            sorted_keys,
         }
     }
 
@@ -37,7 +37,7 @@ impl VotesAggregator {
         header: &Header,
     ) -> DagResult<Option<Certificate>> {
         let author = vote.author;
-        let author_bls = vote.author_bls;
+        let author_bls = committee.get_bls_public_g2(&author);
 
         // Ensure it is the first time this authority votes.
         ensure!(self.used.insert(author), DagError::AuthorityReuse(author));
@@ -48,22 +48,21 @@ impl VotesAggregator {
         // }
 
         self.votes.push((author_bls, vote.signature));
-        self.weight += committee.stake(&author);        
+        self.weight += committee.stake(&author);     
+
+        let id = self.sorted_keys.binary_search(&author_bls).unwrap();
+        let chunk = id / 128;
+        let bit = id % 128;
+        //adding it to bitvec
+        self.pk_bit_vec[chunk] |= 1 << bit;   
     
         if self.votes.len() == 1 {
             self.agg_sign = vote.signature;
-        
-            //adding it to bitvec
-            self.pk_bit_vec |= 1 << self.sorted_keys.binary_search(&vote.author_bls).unwrap();
 
         } else if self.votes.len() >= 2 {
 
-            let new_agg_sign =
-                aggregate_sign(self.agg_sign.as_signature(), vote.signature.as_signature());
-            self.agg_sign = BlsSign(new_agg_sign.to_bytes());
-
-            //adding node id to bitvec
-            self.pk_bit_vec |= 1 << self.sorted_keys.binary_search(&vote.author_bls).unwrap();
+            let new_agg_sign = aggregate_sign(&self.agg_sign, &vote.signature);
+            self.agg_sign = new_agg_sign;
         }
 
         let leader = committee.leader(vote.round as usize);
@@ -73,9 +72,24 @@ impl VotesAggregator {
         
         if self.weight >= committee.quorum_threshold() {
             self.weight = 0; // Ensures quorum is only reached once.
+
+            // let mut ids = Vec::new();
+            //     for idx in 0..committee.size() {
+            //         let x = idx / 128;
+            //         let chunk = self.pk_bit_vec[x];
+            //         let ridx = idx - x * 128;
+            //         if chunk & 1 << ridx != 0 {
+            //             ids.push(idx);
+            //         }
+            //     }
+
+            // let agg_pk = combine_key_from_ids(ids, &self.sorted_keys);
+            // // for checking aggregated sign
+            // SignatureShareG1::verify_batch(&vote.digest().0, &agg_pk, &self.agg_sign).unwrap();
+            
             return Ok(Some(Certificate {
                 header: header.clone(),
-                votes: (self.pk_bit_vec, self.agg_sign),
+                votes: (self.pk_bit_vec.clone(), self.agg_sign),
             }));
         }
         Ok(None)
