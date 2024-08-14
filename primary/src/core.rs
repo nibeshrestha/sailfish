@@ -10,7 +10,7 @@ use config::Committee;
 use crypto::{BlsSignatureService, Hash as _};
 use crypto::{Digest, PublicKey, SignatureService};
 use blsttc::PublicKeyShareG2;
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use network::{CancelHandler, ReliableSender};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -255,7 +255,8 @@ impl Core {
             debug!("Processing of {} suspended: missing parent(s)", header.id);
             return Ok(());
         }
-        // Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
+
+        //Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
         let mut stake = 0;
         let mut has_leader = false;
         for x in parents {
@@ -279,12 +280,12 @@ impl Core {
             }
         }
 
-        // Ensure we have the payload. If we don't, the synchronizer will ask our workers to get it, and then
-        // reschedule processing of this header once we have it.
-        if self.synchronizer.missing_payload(header).await? {
-            debug!("Processing of {} suspended: missing payload", header);
-            return Ok(());
-        }
+        // // Ensure we have the payload. If we don't, the synchronizer will ask our workers to get it, and then
+        // // reschedule processing of this header once we have it.
+        // if self.synchronizer.missing_payload(header).await? {
+        //     debug!("Processing of {} suspended: missing payload", header);
+        //     return Ok(());
+        // }
 
         // Store the header.
         let bytes = bincode::serialize(header).expect("Failed to serialize header");
@@ -299,7 +300,7 @@ impl Core {
         {
             // Make a vote and send it to all nodes
             let vote = Vote::new(header, &self.name, &mut self.bls_signature_service).await;
-            debug!("Created {:?}", vote);
+            // debug!("Created {:?}", vote);
         
             self.process_vote(vote.clone())
                 .await
@@ -467,6 +468,7 @@ impl Core {
 
         // Send it to the consensus layer.
         let id = certificate.header.id.clone();
+        info!("sending certificate {:?} to consensus", id);
         if let Err(e) = self.tx_consensus.send(certificate).await {
             warn!(
                 "Failed to deliver certificate {} to the consensus: {}",

@@ -14,8 +14,8 @@ class ParseError(Exception):
 
 
 class LogParser:
-    def __init__(self, clients, primaries, workers, burst, faults=0):
-        inputs = [clients, primaries, workers]
+    def __init__(self, clients, primaries, burst, faults=0):
+        inputs = [clients, primaries]
         assert all(isinstance(x, list) for x in inputs)
         assert all(isinstance(x, str) for y in inputs for x in y)
         assert all(x for x in inputs)
@@ -24,7 +24,6 @@ class LogParser:
         self.faults = faults
         if isinstance(faults, int):
             self.committee_size = len(primaries) + int(faults)
-            self.workers =  len(workers) // len(primaries)
         else:
             self.committee_size = '?'
             self.workers = '?'
@@ -45,25 +44,28 @@ class LogParser:
                 results = p.map(self._parse_primaries, primaries)
         except (ValueError, IndexError, AttributeError) as e:
             raise ParseError(f'Failed to parse nodes\' logs: {e}')
-        proposals, commits, self.configs, primary_ips, leader_commits, non_leader_commits = zip(*results)
+        
+        proposals, commits, self.configs, primary_ips, leader_commits, non_leader_commits, self.received_samples, sizes = zip(*results)
         self.proposals = self._merge_results([x.items() for x in proposals])
         self.commits = self._merge_results([x.items() for x in commits])
         self.leader_commits = self._merge_results([x.items() for x in leader_commits])
         self.non_leader_commits = self._merge_results([x.items() for x in non_leader_commits])
 
-        # Parse the workers logs.
-        try:
-            with Pool() as p:
-                results = p.map(self._parse_workers, workers)
-        except (ValueError, IndexError, AttributeError) as e:
-            raise ParseError(f'Failed to parse workers\' logs: {e}')
-        sizes, self.received_samples, workers_ips = zip(*results)
         self.sizes = {
             k: v for x in sizes for k, v in x.items() if k in self.commits
         }
+        # # Parse the workers logs.
+        # try:
+        #     with Pool() as p:
+        #         results = p.map(self._parse_workers, workers)
+        # except (ValueError, IndexError, AttributeError) as e:
+        #     raise ParseError(f'Failed to parse workers\' logs: {e}')
+        # sizes, self.received_samples, workers_ips = zip(*results)
+        
 
-        # Determine whether the primary and the workers are collocated.
-        self.collocate = set(primary_ips) == set(workers_ips)
+        # # Determine whether the primary and the workers are collocated.
+        # self.collocate = set(primary_ips) == set(workers_ips)
+        self.collocate = True
 
         # Check whether clients missed their target rate.
         if self.misses != 0:
@@ -96,26 +98,32 @@ class LogParser:
         samples = {int(s): self._to_posix(t) for t, s in tmp}
 
         return size, rate, start, misses, samples
-
+    
     def _parse_primaries(self, log):
         if search(r'(?:panicked|Error)', log) is not None:
             raise ParseError('Primary(s) panicked')
 
-        tmp = findall(r'\[(.*Z) .* Created B\d+\([^ ]+\) -> ([^ ]+=)', log)
+        tmp = findall(r'\[(.*Z) .* Created ([^ ]+)\n', log)
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         proposals = self._merge_results([tmp])
-
-        tmp = findall(r'\[(.*Z) .* Committed B\d+\([^ ]+\) -> ([^ ]+=)', log)
+        
+        tmp = findall(r'\[(.*Z) .* Committed ([^ ]+)', log)
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         commits = self._merge_results([tmp])
 
-        tmp = findall(r'\[(.*Z) .* Committed B\d+\([^ ]+\) -> ([^ ]+=) Leader', log)
+        tmp = findall(r'\[(.*Z) .* Committed ([^ ]+) Leader', log)
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         leader_commits = self._merge_results([tmp])
 
-        tmp = findall(r'\[(.*Z) .* Committed B\d+\([^ ]+\) -> ([^ ]+=) NonLeader', log)
+        tmp = findall(r'\[(.*Z) .* Committed ([^ ]+) NonLeader', log)
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         non_leader_commits = self._merge_results([tmp])
+
+        tmp = findall(r'Header ([^ ]+) contains sample tx (\d+)', log)
+        samples = {int(s): d for d, s in tmp}
+
+        tmp = findall(r'Header ([^ ]+) contains (\d+) B', log)
+        sizes = {d: int(s) for d, s in tmp}
 
         configs = {
             'header_size': int(
@@ -143,21 +151,21 @@ class LogParser:
 
         ip = search(r'booted on (\d+.\d+.\d+.\d+)', log).group(1)
         
-        return proposals, commits, configs, ip, leader_commits, non_leader_commits
+        return proposals, commits, configs, ip, leader_commits, non_leader_commits, samples, sizes
 
-    def _parse_workers(self, log):
-        if search(r'(?:panic|Error)', log) is not None:
-            raise ParseError('Worker(s) panicked')
+    # def _parse_workers(self, log):
+    #     if search(r'(?:panic|Error)', log) is not None:
+    #         raise ParseError('Worker(s) panicked')
 
-        tmp = findall(r'Batch ([^ ]+) contains (\d+) B', log)
-        sizes = {d: int(s) for d, s in tmp}
+    #     tmp = findall(r'Batch ([^ ]+) contains (\d+) B', log)
+    #     sizes = {d: int(s) for d, s in tmp}
 
-        tmp = findall(r'Batch ([^ ]+) contains sample tx (\d+)', log)
-        samples = {int(s): d for d, s in tmp}
+    #     tmp = findall(r'Batch ([^ ]+) contains sample tx (\d+)', log)
+    #     samples = {int(s): d for d, s in tmp}
 
-        ip = search(r'booted on (\d+.\d+.\d+.\d+)', log).group(1)
+    #     ip = search(r'booted on (\d+.\d+.\d+.\d+)', log).group(1)
 
-        return sizes, samples, ip
+    #     return sizes, samples, ip
 
     def _to_posix(self, string):
         x = datetime.fromisoformat(string.replace('Z', '+00:00'))
@@ -196,13 +204,14 @@ class LogParser:
         return tps, bps, duration
 
     def _end_to_end_latency(self):
+        
         latency = []
         for sent, received in zip(self.sent_samples, self.received_samples):
-            for tx_id, batch_id in received.items():
-                if batch_id in self.commits:
+            for tx_id, header_id in received.items():
+                if header_id in self.commits:
                     assert tx_id in sent  # We receive txs that we sent.
                     start = sent[tx_id]
-                    end = self.commits[batch_id]
+                    end = self.commits[header_id]
                     latency += [end-start]
         return mean(latency) if latency else 0
 
@@ -233,7 +242,7 @@ class LogParser:
             ' + CONFIG:\n'
             f' Faults: {self.faults} node(s)\n'
             f' Committee size: {self.committee_size} node(s)\n'
-            f' Worker(s) per node: {self.workers} worker(s)\n'
+            f' Worker(s) per node: 1 worker\n'
             f' Collocate primary and workers: {self.collocate}\n'
             f' Input rate: {sum(self.rate):,} tx/s\n'
             f' Transaction size: {self.size[0]:,} B\n'
@@ -277,12 +286,12 @@ class LogParser:
         for filename in sorted(glob(join(directory, 'primary-*.log'))):
             with open(filename, 'r') as f:
                 primaries += [f.read()]
-        workers = []
-        for filename in sorted(glob(join(directory, 'worker-*.log'))):
-            with open(filename, 'r') as f:
-                workers += [f.read()]
+        # workers = []
+        # for filename in sorted(glob(join(directory, 'worker-*.log'))):
+        #     with open(filename, 'r') as f:
+        #         workers += [f.read()]
 
-        return cls(clients, primaries, workers, burst, faults=faults)
+        return cls(clients, primaries, burst, faults=faults)
 
 
 def write_to_csv(con_r0_latency, con_r1_latency, consensus_tps, consensus_bps, consensus_latency, e2e_tps, e2e_bps, e2e_latency, burst, csv_file_path):

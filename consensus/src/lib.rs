@@ -165,26 +165,17 @@ impl Consensus {
             
                         // Output the sequence in the right order.
                         for certificate in sequence {
-                            #[cfg(not(feature = "benchmark"))]
-                            info!("Committed {} with header", certificate.header);
-            
-                            #[cfg(feature = "benchmark")]
-                            for digest in certificate.header.payload.keys() {
-                                // NOTE: This log entry is used to compute performance.
-                                // info!("Committed {} -> {:?}", certificate.header, digest);
-                                // if certificate.header.author == self.committee.leader(certificate.header.round as usize) {
-                                //     info!("Committed Leader {} -> {:?}", certificate.header, digest);
-                                // } else {
-                                //     info!("Committed NonLeader {} -> {:?}", certificate.header, digest);
-                                // }
-                                if certificate.header.round == leader_round {
-                                    info!("Committed {} -> {:?} Leader", certificate.header, digest);
-                                }else if certificate.header.round == leader_round-1 {
-                                    info!("Committed {} -> {:?} NonLeader", certificate.header, digest);
-                                } else{
-                                    info!("Committed {} -> {:?}", certificate.header, digest);
-                                }
+                            // #[cfg(not(feature = "benchmark"))]
+                            // info!("Committed {} with header", certificate.header);
+                            
+                            if certificate.header.round == leader_round {
+                                info!("Committed {:?} Leader", certificate.header.id);
+                            }else if certificate.header.round == leader_round-1 {
+                                info!("Committed {:?} NonLeader", certificate.header.id);
+                            } else{
+                                info!("Committed {:?} ", certificate.header.id);
                             }
+                            
             
                             self.tx_primary
                                 .send(certificate.clone())
@@ -263,23 +254,15 @@ impl Consensus {
         
                     // Output the sequence in the right order.
                     for certificate in sequence {
-                        #[cfg(not(feature = "benchmark"))]
-                        info!("Committed {}", certificate.header);
-        
-                        #[cfg(feature = "benchmark")]
-                        for digest in certificate.header.payload.keys() {
-                            // NOTE: This log entry is used to compute performance.
-                            info!("Committed {} -> {:?}", certificate.header, digest);
-                            // if certificate.header.author == self.committee.leader(certificate.header.round as usize) {
-                            //     info!("Committed Leader {} -> {:?}", certificate.header, digest);
-                            // } else {
-                            //     info!("Committed NonLeader {} -> {:?}", certificate.header, digest);
-                            // }
-                            if certificate.header.round == leader_round {
-                                info!("Committed Leader {} -> {:?}", certificate.header, digest);
-                            }else if certificate.header.round == leader_round-1 {
-                                info!("Committed NonLeader {} -> {:?}", certificate.header, digest);
-                            }
+
+                        // #[cfg(not(feature = "benchmark"))]
+                        
+                        if certificate.header.round == leader_round {
+                            info!("Committed {:?} Leader", certificate.header.id);
+                        }else if certificate.header.round == leader_round-1 {
+                            info!("Committed {:?} NonLeader", certificate.header.id);
+                        }else{
+                            info!("Committed {:?} ", certificate.header.id);
                         }
         
                         self.tx_primary

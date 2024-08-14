@@ -23,6 +23,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
+use crate::worker::Worker;
 
 /// The default channel capacity for each channel of the primary.
 pub const CHANNEL_CAPACITY: usize = 1_000;
@@ -120,26 +121,34 @@ impl Primary {
             name, address
         );
 
-        // Spawn the network receiver listening to messages from our workers.
-        let mut address = committee
-            .primary(&name)
-            .expect("Our public key or worker id is not in the committee")
-            .worker_to_primary;
-        address.set_ip("0.0.0.0".parse().unwrap());
-        NetworkReceiver::spawn(
-            address,
-            /* handler */
-            WorkerReceiverHandler {
-                tx_our_digests,
-                tx_others_digests,
-            },
-        );
-        info!(
-            "Primary {} listening to workers messages on {}",
-            name, address
+        // // Spawn the network receiver listening to messages from our workers.
+        // let mut address = committee
+        //     .primary(&name)
+        //     .expect("Our public key or worker id is not in the committee")
+        //     .worker_to_primary;
+        // address.set_ip("0.0.0.0".parse().unwrap());
+        // NetworkReceiver::spawn(
+        //     address,
+        //     /* handler */
+        //     WorkerReceiverHandler {
+        //         tx_our_digests,
+        //         tx_others_digests,
+        //     },
+        // );
+        // info!(
+        //     "Primary {} listening to workers messages on {}",
+        //     name, address
+        // );
+
+        Worker::spawn(
+            name,
+            0,
+            committee.clone(),
+            parameters.clone(),
+            tx_our_digests,
         );
 
-        // The `Synchronizer` provides auxiliary methods helping to `Core` to sync.
+        //The `Synchronizer` provides auxiliary methods helping to `Core` to sync.
         let synchronizer = Synchronizer::new(
             name,
             &committee,
@@ -213,6 +222,7 @@ impl Primary {
             committee.clone(),
             signature_service,
             parameters.header_size,
+            parameters.batch_size,
             parameters.max_header_delay,
             /* rx_core */ rx_parents,
             /* rx_workers */ rx_our_digests,

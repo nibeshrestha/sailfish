@@ -226,7 +226,7 @@ impl HeaderWaiter {
                 Some(result) = waiting.next() => match result {
                     Ok(Some(header)) => {
                         let _ = self.pending.remove(&header.id);
-                        for x in header.payload.keys() {
+                        for x in &header.payload {
                             let _ = self.batch_requests.remove(x);
                         }
                         for x in &header.parents {

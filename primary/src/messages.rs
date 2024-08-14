@@ -1,3 +1,4 @@
+use crate::batch_maker::Transaction;
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::primary::Round;
@@ -15,7 +16,7 @@ use std::fmt;
 pub struct Header {
     pub author: PublicKey,
     pub round: Round,
-    pub payload: BTreeMap<Digest, WorkerId>,
+    pub payload: BTreeSet<Digest>,
     pub parents: BTreeSet<Digest>,
     pub id: Digest,
     pub signature: Signature,
@@ -27,7 +28,7 @@ impl Header {
     pub async fn new(
         author: PublicKey,
         round: Round,
-        payload: BTreeMap<Digest, WorkerId>,
+        payload: BTreeSet<Digest>,
         parents: BTreeSet<Digest>,
         timeout_cert: TimeoutCert,
         no_vote_cert: NoVoteCert,
@@ -60,13 +61,6 @@ impl Header {
         let voting_rights = committee.stake(&self.author);
         ensure!(voting_rights > 0, DagError::UnknownAuthority(self.author));
 
-        // Ensure all worker ids are correct.
-        for worker_id in self.payload.values() {
-            committee
-                .worker(&self.author, worker_id)
-                .map_err(|_| DagError::MalformedHeader(self.id.clone()))?;
-        }
-
         // Check the signature.
         self.signature
             .verify(&self.id, &self.author)
@@ -82,9 +76,8 @@ impl Hash for Header {
         let mut hasher = Sha512::new();
         hasher.update(&self.author);
         hasher.update(self.round.to_le_bytes());
-        for (x, y) in &self.payload {
+        for x in &self.payload {
             hasher.update(x);
-            hasher.update(y.to_le_bytes());
         }
         for x in &self.parents {
             hasher.update(x);
@@ -97,11 +90,10 @@ impl fmt::Debug for Header {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(
             f,
-            "{}: B{}({}, {})",
+            "{}: B{}({})",
             self.id,
             self.round,
             self.author,
-            self.payload.keys().map(|x| x.size()).sum::<usize>(),
         )
     }
 }

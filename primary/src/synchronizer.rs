@@ -54,7 +54,7 @@ impl Synchronizer {
         }
 
         let mut missing = HashMap::new();
-        for (digest, worker_id) in header.payload.iter() {
+        for digest in header.payload.iter() {
             // Check whether we have the batch. If one of our worker has the batch, the primary stores the pair
             // (digest, worker_id) in its own storage. It is important to verify that we received the batch
             // from the correct worker id to prevent the following attack:
@@ -66,9 +66,9 @@ impl Synchronizer {
             //      4. The last good node will never be able to sync as it will keep sending its sync requests
             //         to workers #1 (rather than workers #0). Also, clients will never be able to retrieve batch
             //         X as they will be querying worker #1.
-            let key = [digest.as_ref(), &worker_id.to_le_bytes()].concat();
+            let key = digest.to_vec();
             if self.store.read(key).await?.is_none() {
-                missing.insert(digest.clone(), *worker_id);
+                missing.insert(digest.clone(), 0);
             }
         }
 

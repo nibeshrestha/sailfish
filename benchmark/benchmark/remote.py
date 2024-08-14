@@ -428,7 +428,7 @@ class Bench:
             workers_addresses = await self._run_clients(
                 rate, burst, committee, bench_parameters, hosts_to_connections)
             # Run the workers (except the faulty ones).
-            await self._run_workers(workers_addresses, hosts_to_connections, debug)
+            # await self._run_workers(workers_addresses, hosts_to_connections, debug)
 
         # Wait for all transactions to be processed.
         duration = bench_parameters.duration
@@ -471,20 +471,20 @@ class Bench:
         except Exception as e:
             return host, Exception(f'Failed to download {src} from {host} because of {e}')
 
-    async def _download_worker_logs(self, faults, committee, hosts_to_connections):
-        workers_addresses = committee.workers_addresses(faults)
-        tasks = []
+    # async def _download_worker_logs(self, faults, committee, hosts_to_connections):
+    #     workers_addresses = committee.workers_addresses(faults)
+    #     tasks = []
 
-        print('Downloading workers logs...')
-        for i, addresses in enumerate(workers_addresses):
-            for j, address in addresses:
-                host = Committee.ip(address)
-                src = PathMaker.worker_log_file(i, int(j))
-                dest = PathMaker.worker_log_file(i, int(j))
-                connection = hosts_to_connections[host]
-                tasks.append(self._download_log(host, connection, src, dest))
+    #     print('Downloading workers logs...')
+    #     for i, addresses in enumerate(workers_addresses):
+    #         for j, address in addresses:
+    #             host = Committee.ip(address)
+    #             src = PathMaker.worker_log_file(i, int(j))
+    #             dest = PathMaker.worker_log_file(i, int(j))
+    #             connection = hosts_to_connections[host]
+    #             tasks.append(self._download_log(host, connection, src, dest))
             
-        await self._gather_and_parse(tasks, 'Download Worker Logs')
+    #     await self._gather_and_parse(tasks, 'Download Worker Logs')
 
     async def _download_primary_logs(self, faults, committee, hosts_to_connections):
         primary_addresses = committee.primary_addresses(faults)

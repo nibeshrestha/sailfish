@@ -1,3 +1,4 @@
+use crate::batch_maker::Transaction;
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::messages::{Certificate, Header, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert};
 use crate::primary::Round;
@@ -8,8 +9,10 @@ use crypto::{Digest, PublicKey, SignatureService};
 use log::info;
 use log::{debug, warn};
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration, Instant};
+use std::convert::TryInto;
 
 #[cfg(test)]
 #[path = "tests/proposer_tests.rs"]
@@ -25,13 +28,14 @@ pub struct Proposer {
     signature_service: SignatureService,
     /// The size of the headers' payload.
     header_size: usize,
+    batch_size: usize,
     /// The maximum delay to wait for batches' digests.
     max_header_delay: u64,
 
     /// Receives the parents to include in the next header (along with their round number).
     rx_core: Receiver<(Vec<Certificate>, Round)>,
-    /// Receives the batches' digests from our workers.
-    rx_workers: Receiver<(Digest, WorkerId)>,
+    /// Receives the batch digest from our workers.
+    rx_workers: Receiver<(Digest, Vec<Vec<u8>>)>,
     /// Sends newly created headers to the `Core`.
     tx_core: Sender<Header>,
     /// Sends newly created timeouts to the `Core`.
@@ -49,14 +53,16 @@ pub struct Proposer {
     last_parents: Vec<Certificate>,
     /// Holds the certificate of the last leader (if any).
     last_leader: Option<Certificate>,
-    /// Holds the batches' digests waiting to be included in the next header.
-    digests: Vec<(Digest, WorkerId)>,
+    /// Holds the txns waiting to be included in the next header.
+    digests: Vec<Digest>,
     /// Keeps track of the size (in bytes) of batches' digests that we received so far.
     payload_size: usize,
     /// Holds the Timeout certificate for the latest round.
     last_timeout_cert: TimeoutCert,
     /// Holds the latest No Vote Certificate received.
     last_no_vote_cert: NoVoteCert,
+
+    digest_map : HashMap<Digest, Vec<Vec<u8>>>
 }
 
 impl Proposer {
@@ -66,9 +72,10 @@ impl Proposer {
         committee: Committee,
         signature_service: SignatureService,
         header_size: usize,
+        batch_size: usize,
         max_header_delay: u64,
         rx_core: Receiver<(Vec<Certificate>, Round)>,
-        rx_workers: Receiver<(Digest, WorkerId)>,
+        rx_workers: Receiver<(Digest, Vec<Vec<u8>>)>,
         tx_core: Sender<Header>,
         tx_core_timeout: Sender<Timeout>,
         rx_timeout_cert: Receiver<(TimeoutCert, Round)>,
@@ -82,6 +89,7 @@ impl Proposer {
                 committee,
                 signature_service,
                 header_size,
+                batch_size,
                 max_header_delay,
                 rx_core,
                 rx_workers,
@@ -93,10 +101,11 @@ impl Proposer {
                 round: 0,
                 last_parents: genesis,
                 last_leader: None,
-                digests: Vec::with_capacity(2 * header_size),
+                digests: Vec::new(),
                 payload_size: 0,
                 last_timeout_cert: TimeoutCert:: new(0),
                 last_no_vote_cert: NoVoteCert:: new(0),
+                digest_map: HashMap::new(),
             }
             .run()
             .await;
@@ -149,6 +158,7 @@ impl Proposer {
         } else {
             NoVoteCert::new(0) // Assuming NoVoteCert::new creates an empty certificate
         };
+
         let header = Header::new(
             self.name,
             self.round,
@@ -160,14 +170,30 @@ impl Proposer {
         )
         .await;
 
-        debug!("Created {:?}", header);
+        // debug!("Created {:?}", header.id);
 
         #[cfg(feature = "benchmark")]
-        for digest in header.payload.keys() {
+        {
+            info!("Created {:?}", header.id);
+            info!("Header {:?} contains {} B", header.id, header.payload.len()*self.batch_size);
+            for digest in &header.payload {
+                let tx_ids: Vec<_> = self.digest_map.get(&digest).unwrap()
+                .iter()
+                .filter(|tx| tx[0] == 0u8 && tx.len() > 8)
+                .filter_map(|tx| tx[1..9].try_into().ok())
+                .collect();
+                for id in tx_ids {
+                    info!(
+                        "Header {:?} contains sample tx {}",
+                        header.id,
+                        u64::from_be_bytes(id)
+                    );
+                }
+                self.digest_map.remove(&digest);
+            }
             // NOTE: This log entry is used to compute performance.
-            info!("Created {} -> {:?}", header, digest);
         }
-
+        
         // Send the new header to the `Core` that will broadcast and process it.
         self.tx_core
             .send(header)
@@ -266,9 +292,10 @@ impl Proposer {
                     // (2) Also implement the wait for leader idea what is was there before
                     advance = self.update_leader();
                 }
-                Some((digest, worker_id)) = self.rx_workers.recv() => {
+                Some((digest, txns)) = self.rx_workers.recv() => {
                     self.payload_size += digest.size();
-                    self.digests.push((digest, worker_id));
+                    self.digests.push(digest.clone());
+                    self.digest_map.insert(digest, txns);
                 }
                 Some((timeout_cert, round)) = self.rx_timeout_cert.recv() => {
                     match round.cmp(&self.last_timeout_cert.round) {
