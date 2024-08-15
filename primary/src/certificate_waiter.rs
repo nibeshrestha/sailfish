@@ -62,7 +62,6 @@ impl CertificateWaiter {
                     // Add the certificate to the waiter pool. The waiter will return it to us
                     // when all its parents are in the store.
                     let wait_for = certificate
-                        .header
                         .parents
                         .iter()
                         .cloned()

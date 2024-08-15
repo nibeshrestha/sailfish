@@ -35,7 +35,7 @@ pub struct Proposer {
     /// Receives the parents to include in the next header (along with their round number).
     rx_core: Receiver<(Vec<Certificate>, Round)>,
     /// Receives the batch digest from our workers.
-    rx_workers: Receiver<(Digest, Vec<Vec<u8>>)>,
+    rx_workers: Receiver<Vec<Transaction>>,
     /// Sends newly created headers to the `Core`.
     tx_core: Sender<Header>,
     /// Sends newly created timeouts to the `Core`.
@@ -54,15 +54,13 @@ pub struct Proposer {
     /// Holds the certificate of the last leader (if any).
     last_leader: Option<Certificate>,
     /// Holds the txns waiting to be included in the next header.
-    digests: Vec<Digest>,
+    txns: Vec<Transaction>,
     /// Keeps track of the size (in bytes) of batches' digests that we received so far.
     payload_size: usize,
     /// Holds the Timeout certificate for the latest round.
     last_timeout_cert: TimeoutCert,
     /// Holds the latest No Vote Certificate received.
     last_no_vote_cert: NoVoteCert,
-
-    digest_map : HashMap<Digest, Vec<Vec<u8>>>
 }
 
 impl Proposer {
@@ -75,7 +73,7 @@ impl Proposer {
         batch_size: usize,
         max_header_delay: u64,
         rx_core: Receiver<(Vec<Certificate>, Round)>,
-        rx_workers: Receiver<(Digest, Vec<Vec<u8>>)>,
+        rx_workers: Receiver<Vec<Transaction>>,
         tx_core: Sender<Header>,
         tx_core_timeout: Sender<Timeout>,
         rx_timeout_cert: Receiver<(TimeoutCert, Round)>,
@@ -101,11 +99,10 @@ impl Proposer {
                 round: 0,
                 last_parents: genesis,
                 last_leader: None,
-                digests: Vec::new(),
+                txns: Vec::new(),
                 payload_size: 0,
                 last_timeout_cert: TimeoutCert:: new(0),
                 last_no_vote_cert: NoVoteCert:: new(0),
-                digest_map: HashMap::new(),
             }
             .run()
             .await;
@@ -162,7 +159,7 @@ impl Proposer {
         let header = Header::new(
             self.name,
             self.round,
-            self.digests.drain(..).collect(),
+            self.txns.drain(..).collect(),
             self.last_parents.drain(..).map(|x| x.digest()).collect(),
             timeout_cert,
             no_vote_cert,
@@ -175,21 +172,21 @@ impl Proposer {
         #[cfg(feature = "benchmark")]
         {
             info!("Created {:?}", header.id);
-            info!("Header {:?} contains {} B", header.id, header.payload.len()*self.batch_size);
-            for digest in &header.payload {
-                let tx_ids: Vec<_> = self.digest_map.get(&digest).unwrap()
+            info!("Header {:?} contains {} B", header.id, header.payload.len()*512);
+            
+            let tx_ids: Vec<_> = header
+                .payload
+                .clone()
                 .iter()
                 .filter(|tx| tx[0] == 0u8 && tx.len() > 8)
                 .filter_map(|tx| tx[1..9].try_into().ok())
                 .collect();
-                for id in tx_ids {
-                    info!(
-                        "Header {:?} contains sample tx {}",
-                        header.id,
-                        u64::from_be_bytes(id)
-                    );
-                }
-                self.digest_map.remove(&digest);
+            for id in tx_ids {
+                info!(
+                    "Header {:?} contains sample tx {}",
+                    header.id,
+                    u64::from_be_bytes(id)
+                );
             }
             // NOTE: This log entry is used to compute performance.
         }
@@ -292,10 +289,9 @@ impl Proposer {
                     // (2) Also implement the wait for leader idea what is was there before
                     advance = self.update_leader();
                 }
-                Some((digest, txns)) = self.rx_workers.recv() => {
-                    self.payload_size += digest.size();
-                    self.digests.push(digest.clone());
-                    self.digest_map.insert(digest, txns);
+                Some(txns) = self.rx_workers.recv() => {
+                    self.payload_size += txns.iter().map(|txn| txn.len()).sum::<usize>();
+                    self.txns.extend(txns);
                 }
                 Some((timeout_cert, round)) = self.rx_timeout_cert.recv() => {
                     match round.cmp(&self.last_timeout_cert.round) {

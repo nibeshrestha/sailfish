@@ -36,7 +36,7 @@ pub struct Worker {
     committee: Committee,
     /// The configuration parameters.
     parameters: Parameters,
-    tx_digests: Sender<(Digest, Vec<Vec<u8>>)>,
+    tx_txns:  Sender<Vec<Transaction>>,
 }
 
 impl Worker {
@@ -45,7 +45,7 @@ impl Worker {
         id: WorkerId,
         committee: Committee,
         parameters: Parameters,
-        tx_digests: Sender<(Digest, Vec<Vec<u8>>)>,
+        tx_txns: Sender<Vec<Transaction>>,
     ) {
         // Define a worker instance.
         let worker = Self {
@@ -53,7 +53,7 @@ impl Worker {
             id,
             committee,
             parameters,
-            tx_digests,
+            tx_txns,
         };
 
         // Spawn all worker tasks.
@@ -96,7 +96,7 @@ impl Worker {
             self.parameters.batch_size,
             self.parameters.max_batch_delay,
             /* rx_transaction */ rx_batch_maker,
-            self.tx_digests.clone(),
+            self.tx_txns.clone(),
         );
 
         info!(

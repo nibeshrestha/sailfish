@@ -40,6 +40,7 @@ pub enum PrimaryMessage {
     Certificate(Certificate),
     VerifiedCertificate(Certificate),
     CertificatesRequest(Vec<Digest>, /* requestor */ PublicKey),
+    PayloadRequest(Digest, PublicKey)
 }
 
 /// The messages sent by the primary to its workers.
@@ -82,8 +83,8 @@ impl Primary {
         let (tx_timeout_cert, rx_timeout_cert) = channel(CHANNEL_CAPACITY);
         let (tx_no_vote_msg, rx_no_vote_msg) = channel(CHANNEL_CAPACITY);
         let (tx_no_vote_cert, rx_no_vote_cert) = channel(CHANNEL_CAPACITY);
-        let (tx_sync_headers, rx_sync_headers) = channel(CHANNEL_CAPACITY);
-        let (tx_sync_certificates, rx_sync_certificates) = channel(CHANNEL_CAPACITY);
+        // let (tx_sync_headers, rx_sync_headers) = channel(CHANNEL_CAPACITY);
+        // let (tx_sync_certificates, rx_sync_certificates) = channel(CHANNEL_CAPACITY);
         let (tx_headers_loopback, rx_headers_loopback) = channel(CHANNEL_CAPACITY);
         let (tx_certificates_loopback, rx_certificates_loopback) = channel(CHANNEL_CAPACITY);
         let (tx_primary_messages, rx_primary_messages) = channel(CHANNEL_CAPACITY);
@@ -148,14 +149,14 @@ impl Primary {
             tx_our_digests,
         );
 
-        //The `Synchronizer` provides auxiliary methods helping to `Core` to sync.
-        let synchronizer = Synchronizer::new(
-            name,
-            &committee,
-            store.clone(),
-            /* tx_header_waiter */ tx_sync_headers,
-            /* tx_certificate_waiter */ tx_sync_certificates,
-        );
+        // //The `Synchronizer` provides auxiliary methods helping to `Core` to sync.
+        // let synchronizer = Synchronizer::new(
+        //     name,
+        //     &committee,
+        //     store.clone(),
+        //     /* tx_header_waiter */ tx_sync_headers,
+        //     /* tx_certificate_waiter */ tx_sync_certificates,
+        // );
 
         // The `SignatureService` is used to require signatures on specific digests.
         let signature_service = SignatureService::new(secret);
@@ -168,7 +169,7 @@ impl Primary {
             committee.clone(),
             sorted_keys,
             store.clone(),
-            synchronizer,
+            // synchronizer,
             signature_service.clone(),
             bls_signature_service,
             consensus_round.clone(),
@@ -195,25 +196,25 @@ impl Primary {
         // Whenever the `Synchronizer` does not manage to validate a header due to missing parent certificates of
         // batch digests, it commands the `HeaderWaiter` to synchronizer with other nodes, wait for their reply, and
         // re-schedule execution of the header once we have all missing data.
-        HeaderWaiter::spawn(
-            name,
-            committee.clone(),
-            store.clone(),
-            consensus_round,
-            parameters.gc_depth,
-            parameters.sync_retry_delay,
-            parameters.sync_retry_nodes,
-            /* rx_synchronizer */ rx_sync_headers,
-            /* tx_core */ tx_headers_loopback,
-        );
+        // HeaderWaiter::spawn(
+        //     name,
+        //     committee.clone(),
+        //     store.clone(),
+        //     consensus_round,
+        //     parameters.gc_depth,
+        //     parameters.sync_retry_delay,
+        //     parameters.sync_retry_nodes,
+        //     /* rx_synchronizer */ rx_sync_headers,
+        //     /* tx_core */ tx_headers_loopback,
+        // );
 
-        // The `CertificateWaiter` waits to receive all the ancestors of a certificate before looping it back to the
-        // `Core` for further processing.
-        CertificateWaiter::spawn(
-            store.clone(),
-            /* rx_synchronizer */ rx_sync_certificates,
-            /* tx_core */ tx_certificates_loopback,
-        );
+        // // The `CertificateWaiter` waits to receive all the ancestors of a certificate before looping it back to the
+        // // `Core` for further processing.
+        // CertificateWaiter::spawn(
+        //     store.clone(),
+        //     /* rx_synchronizer */ rx_sync_certificates,
+        //     /* tx_core */ tx_certificates_loopback,
+        // );
 
         // When the `Core` collects enough parent certificates, the `Proposer` generates a new header with new batch
         // digests from our workers and it back to the `Core`.
@@ -263,6 +264,18 @@ impl MessageHandler for PrimaryReceiverHandler {
         let _ = writer.send(Bytes::from("Ack")).await;
 
         // Deserialize and parse the message.
+        match bincode::deserialize(&serialized).map_err(DagError::SerializationError)? {
+            PrimaryMessage::CertificatesRequest(missing, requestor) => self
+                .tx_cert_requests
+                .send((missing, requestor))
+                .await
+                .expect("Failed to send primary message"),
+            request => self
+                .tx_primary_messages
+                .send(request)
+                .await
+                .expect("Failed to send certificate"),
+        }
         match bincode::deserialize(&serialized).map_err(DagError::SerializationError)? {
             PrimaryMessage::CertificatesRequest(missing, requestor) => self
                 .tx_cert_requests

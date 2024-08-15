@@ -168,12 +168,12 @@ impl Consensus {
                             // #[cfg(not(feature = "benchmark"))]
                             // info!("Committed {} with header", certificate.header);
                             
-                            if certificate.header.round == leader_round {
-                                info!("Committed {:?} Leader", certificate.header.id);
-                            }else if certificate.header.round == leader_round-1 {
-                                info!("Committed {:?} NonLeader", certificate.header.id);
+                            if certificate.round == leader_round {
+                                info!("Committed {:?} Leader", certificate.header_id);
+                            }else if certificate.round == leader_round-1 {
+                                info!("Committed {:?} NonLeader", certificate.header_id);
                             } else{
-                                info!("Committed {:?} ", certificate.header.id);
+                                info!("Committed {:?} ", certificate.header_id);
                             }
                             
             
@@ -219,7 +219,7 @@ impl Consensus {
                         .get(&round)
                         .expect("We should have the whole history by now")
                         .values()
-                        .filter(|(_, x)| x.header.parents.contains(leader_digest))
+                        .filter(|(_, x)| x.parents.contains(leader_digest))
                         .map(|(_, x)| self.committee.stake(&x.origin()))
                         .sum();
         
@@ -257,12 +257,12 @@ impl Consensus {
 
                         // #[cfg(not(feature = "benchmark"))]
                         
-                        if certificate.header.round == leader_round {
-                            info!("Committed {:?} Leader", certificate.header.id);
-                        }else if certificate.header.round == leader_round-1 {
-                            info!("Committed {:?} NonLeader", certificate.header.id);
+                        if certificate.round == leader_round {
+                            info!("Committed {:?} Leader", certificate.header_id);
+                        }else if certificate.round == leader_round-1 {
+                            info!("Committed {:?} NonLeader", certificate.header_id);
                         }else{
-                            info!("Committed {:?} ", certificate.header.id);
+                            info!("Committed {:?} ", certificate.header_id);
                         }
         
                         self.tx_primary
@@ -327,7 +327,7 @@ impl Consensus {
                 .get(&(r))
                 .expect("We should have the whole history by now")
                 .values()
-                .filter(|(digest, _)| parents.iter().any(|x| x.header.parents.contains(digest)))
+                .filter(|(digest, _)| parents.iter().any(|x| x.parents.contains(digest)))
                 .map(|(_, certificate)| certificate)
                 .collect();
         }
@@ -345,7 +345,7 @@ impl Consensus {
         while let Some(x) = buffer.pop() {
             debug!("Sequencing {:?}", x);
             ordered.push(x.clone());
-            for parent in &x.header.parents {
+            for parent in &x.parents {
                 let (digest, certificate) = match state
                     .dag
                     .get(&(x.round() - 1))

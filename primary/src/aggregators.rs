@@ -88,7 +88,10 @@ impl VotesAggregator {
             // SignatureShareG1::verify_batch(&vote.digest().0, &agg_pk, &self.agg_sign).unwrap();
             
             return Ok(Some(Certificate {
-                header: header.clone(),
+                header_id: header.digest(),
+                round: header.round,
+                origin: header.author,
+                parents: header.parents.clone(),
                 votes: (self.pk_bit_vec.clone(), self.agg_sign),
             }));
         }

@@ -16,7 +16,7 @@ use std::fmt;
 pub struct Header {
     pub author: PublicKey,
     pub round: Round,
-    pub payload: BTreeSet<Digest>,
+    pub payload: Vec<Transaction>,
     pub parents: BTreeSet<Digest>,
     pub id: Digest,
     pub signature: Signature,
@@ -28,7 +28,7 @@ impl Header {
     pub async fn new(
         author: PublicKey,
         round: Round,
-        payload: BTreeSet<Digest>,
+        payload: Vec<Transaction>,
         parents: BTreeSet<Digest>,
         timeout_cert: TimeoutCert,
         no_vote_cert: NoVoteCert,
@@ -389,7 +389,10 @@ impl NoVoteCert {
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Certificate {
-    pub header: Header,
+    pub header_id: Digest,
+    pub round : Round,
+    pub origin: PublicKey,
+    pub parents: BTreeSet<Digest>,
     pub votes: (Vec<u128>, SignatureShareG1),
 }
 
@@ -399,10 +402,6 @@ impl Certificate {
             .authorities
             .keys()
             .map(|name| Self {
-                header: Header {
-                    author: *name,
-                    ..Header::default()
-                },
                 ..Self::default()
             })
             .collect()
@@ -449,18 +448,18 @@ impl Certificate {
     }
 
     pub fn round(&self) -> Round {
-        self.header.round
+        self.round
     }
 
     pub fn origin(&self) -> PublicKey {
-        self.header.author
+        self.origin
     }
 }
 
 impl Hash for Certificate {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
-        hasher.update(&self.header.digest());
+        hasher.update(&self.header_id);
         hasher.update(self.round().to_le_bytes());
         hasher.update(&self.origin());
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
@@ -475,14 +474,14 @@ impl fmt::Debug for Certificate {
             self.digest(),
             self.round(),
             self.origin(),
-            self.header.id
+            self.header_id
         )
     }
 }
 
 impl PartialEq for Certificate {
     fn eq(&self, other: &Self) -> bool {
-        let mut ret = self.header.id == other.header.id;
+        let mut ret = self.header_id == other.header_id;
         ret &= self.round() == other.round();
         ret &= self.origin() == other.origin();
         ret

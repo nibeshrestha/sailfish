@@ -22,7 +22,7 @@ pub struct BatchMaker {
     current_batch: Batch,
     /// Holds the size of the current batch (in bytes).
     current_batch_size: usize,
-    tx_digests: Sender<(Digest, Vec<Vec<u8>>)>,
+    tx_txns: Sender<Vec<Transaction>>,
 }
 
 impl BatchMaker {
@@ -30,7 +30,7 @@ impl BatchMaker {
         batch_size: usize,
         max_batch_delay: u64,
         rx_transaction: Receiver<Transaction>,
-        tx_digests: Sender<(Digest, Vec<Vec<u8>>)>,
+        tx_txns:  Sender<Vec<Transaction>>,
     ) {
         tokio::spawn(async move {
             Self {
@@ -39,7 +39,7 @@ impl BatchMaker {
                 rx_transaction,
                 current_batch: Batch::with_capacity(batch_size * 2),
                 current_batch_size: 0,
-                tx_digests,
+                tx_txns,
             }
             .run()
             .await;
@@ -80,14 +80,9 @@ impl BatchMaker {
     /// Seal and broadcast the current batch.
     async fn seal(&mut self) {
         let batch: Vec<Transaction> = self.current_batch.drain(..).collect();
-        let serialized = bincode::serialize(&batch).expect("Failed to serialize our own batch");
-        let digest = Digest(
-            Sha512::digest(&serialized).as_slice()[..32]
-                .try_into()
-                .unwrap(),
-        );
-        self.tx_digests
-            .send((digest,batch))
+
+        self.tx_txns
+            .send(batch)
             .await
             .expect("Failed to send digest");
     }

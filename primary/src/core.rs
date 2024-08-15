@@ -32,7 +32,7 @@ pub struct Core {
     /// The persistent storage.
     store: Store,
     /// Handles synchronization with other nodes and our workers.
-    synchronizer: Synchronizer,
+    // synchronizer: Synchronizer,
     /// Service to sign headers.
     signature_service: SignatureService,
     bls_signature_service: BlsSignatureService,
@@ -96,7 +96,7 @@ impl Core {
         committee: Committee,
         sorted_keys: Arc<Vec<PublicKeyShareG2>>,
         store: Store,
-        synchronizer: Synchronizer,
+        // synchronizer: Synchronizer,
         signature_service: SignatureService,
         bls_signature_service: BlsSignatureService,
         consensus_round: Arc<AtomicU64>,
@@ -120,7 +120,7 @@ impl Core {
                 committee,
                 sorted_keys: sorted_keys,
                 store,
-                synchronizer,
+                // synchronizer,
                 signature_service,
                 bls_signature_service,
                 consensus_round,
@@ -250,35 +250,38 @@ impl Core {
         // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
         // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
         // reschedule processing of this header.
-        let parents = self.synchronizer.get_parents(header).await?;
-        if parents.is_empty() {
-            debug!("Processing of {} suspended: missing parent(s)", header.id);
-            return Ok(());
-        }
+        // let parents = self.synchronizer.get_parents(header).await?;
+        // if parents.is_empty() {
+        //     debug!("Processing of {} suspended: missing parent(s)", header.id);
+        //     return Ok(());
+        // }
 
-        //Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
-        let mut stake = 0;
-        let mut has_leader = false;
-        for x in parents {
-            ensure!(
-                x.round() + 1 == header.round,
-                DagError::MalformedHeader(header.id.clone())
-            );
-            stake += self.committee.stake(&x.origin());
+        // //Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
+        // let mut stake = 0;
+        // let mut has_leader = false;
+        // for x in parents {
+        //     ensure!(
+        //         x.round() + 1 == header.round,
+        //         DagError::MalformedHeader(header.id.clone())
+        //     );
+        //     stake += self.committee.stake(&x.origin());
             
-            has_leader = has_leader || self.committee.leader((header.round - 1) as usize).eq(&x.header.author);
-        }
-        ensure!(
-            stake >= self.committee.quorum_threshold(),
-            DagError::HeaderRequiresQuorum(header.id.clone())
-        );
+        //     has_leader = has_leader || self.committee.leader((header.round - 1) as usize).eq(&x.origin);
+        // }
+        // ensure!(
+        //     stake >= self.committee.quorum_threshold(),
+        //     DagError::HeaderRequiresQuorum(header.id.clone())
+        // );
 
-        if !has_leader {
-            header.timeout_cert.verify(&self.committee)?;
-            if self.committee.leader(header.round as usize).eq(&header.author) {
-                header.no_vote_cert.verify(&self.committee)?;
-            }
-        }
+        // if !has_leader {
+        //     header.timeout_cert.verify(&self.committee)?;
+        //     if self.committee.leader(header.round as usize).eq(&header.author) {
+        //         header.no_vote_cert.verify(&self.committee)?;
+        //     }
+        // }
+
+        
+        //NO NEED TO CHECK FOR MISSING PAYLOAD BECAUSE HEADER ITSELF CONTAINS TRANSACTIONS.
 
         // // Ensure we have the payload. If we don't, the synchronizer will ask our workers to get it, and then
         // // reschedule processing of this header once we have it.
@@ -431,22 +434,24 @@ impl Core {
         // voted, it means we already processed it). Since this header got certified, we are sure that all
         // the data it refers to (ie. its payload and its parents) are available. We can thus continue the
         // processing of the certificate even if we don't have them in store right now.
-        if !self.processing_headers
-        .get(&certificate.header.id).is_some()
-        {
-            // This function may still throw an error if the storage fails.
-            self.process_header(&certificate.header).await?;
-        }
+
+        // NO NEED TO DO THIS BECAUSE WE HAVE REMOVED HEADER OBJECT FROM CERTIFICATE
+        // if !self.processing_headers
+        // .get(&certificate.header_id).is_some()
+        // {
+        //     // This function may still throw an error if the storage fails.
+        //     self.process_header(&certificate.header).await?;
+        // }
 
         // Ensure we have all the ancestors of this certificate yet. If we don't, the synchronizer will gather
         // them and trigger re-processing of this certificate.
-        if !self.synchronizer.deliver_certificate(&certificate).await? {
-            debug!(
-                "Processing of {:?} suspended: missing ancestors",
-                certificate
-            );
-            return Ok(());
-        }
+        // if !self.synchronizer.deliver_certificate(&certificate).await? {
+        //     debug!(
+        //         "Processing of {:?} suspended: missing ancestors",
+        //         certificate
+        //     );
+        //     return Ok(());
+        // }
 
         // Store the certificate.
         let bytes = bincode::serialize(&certificate).expect("Failed to serialize certificate");
@@ -467,7 +472,7 @@ impl Core {
         }
 
         // Send it to the consensus layer.
-        let id = certificate.header.id.clone();
+        let id = certificate.header_id.clone();
         info!("sending certificate {:?} to consensus", id);
         if let Err(e) = self.tx_consensus.send(certificate).await {
             warn!(

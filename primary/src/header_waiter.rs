@@ -25,7 +25,7 @@ const TIMER_RESOLUTION: u64 = 1_000;
 /// The commands that can be sent to the `Waiter`.
 #[derive(Debug)]
 pub enum WaiterMessage {
-    SyncBatches(HashMap<Digest, WorkerId>, Header),
+    // SyncPayload(Digest, Header),
     SyncParents(Vec<Digest>, Header),
 }
 
@@ -58,7 +58,7 @@ pub struct HeaderWaiter {
     parent_requests: HashMap<Digest, (Round, u128)>,
     /// Keeps the digests of the all tx batches for which we sent a sync request,
     /// similarly to `header_requests`.
-    batch_requests: HashMap<Digest, Round>,
+    // payload_requests: HashMap<Digest, Round>,
     /// List of digests (either certificates, headers or tx batch) that are waiting
     /// to be processed. Their processing will resume when we get all their dependencies.
     pending: HashMap<Digest, (Round, Sender<()>)>,
@@ -90,7 +90,7 @@ impl HeaderWaiter {
                 tx_core,
                 network: SimpleSender::new(),
                 parent_requests: HashMap::new(),
-                batch_requests: HashMap::new(),
+                // payload_requests: HashMap::new(),
                 pending: HashMap::new(),
             }
             .run()
@@ -106,15 +106,15 @@ impl HeaderWaiter {
         mut handler: Receiver<()>,
     ) -> DagResult<Option<Header>> {
         let waiting: Vec<_> = missing
-            .iter_mut()
-            .map(|(x, y)| y.notify_read(x.to_vec()))
-            .collect();
+        .iter_mut()
+        .map(|(x, y)| y.notify_read(x.to_vec()))
+        .collect();
         tokio::select! {
             result = try_join_all(waiting) => {
                 result.map(|_| Some(deliver)).map_err(DagError::from)
             }
             _ = handler.recv() => Ok(None),
-        }
+        }  
     }
 
     /// Main loop listening to the `Synchronizer` messages.
@@ -128,50 +128,41 @@ impl HeaderWaiter {
             tokio::select! {
                 Some(message) = self.rx_synchronizer.recv() => {
                     match message {
-                        WaiterMessage::SyncBatches(missing, header) => {
-                            debug!("Synching the payload of {}", header);
-                            let header_id = header.id.clone();
-                            let round = header.round;
-                            let author = header.author;
+                        // WaiterMessage::SyncPayload(missing_header_id, header) => {
+                        //     debug!("Synching the payload of {}", header);
+                        //     let header_id = header.id.clone();
+                        //     let round = header.round;
+                        //     let author = header.author;
 
-                            // Ensure we sync only once per header.
-                            if self.pending.contains_key(&header_id) {
-                                continue;
-                            }
+                        //     // Ensure we sync only once per header.
+                        //     if self.pending.contains_key(&header_id) {
+                        //         continue;
+                        //     }
 
-                            // Add the header to the waiter pool. The waiter will return it to when all
-                            // its parents are in the store.
-                            let wait_for = missing
-                                .iter()
-                                .map(|(digest, worker_id)| {
-                                    let key = [digest.as_ref(), &worker_id.to_le_bytes()].concat();
-                                    (key.to_vec(), self.store.clone())
-                                })
-                                .collect();
-                            let (tx_cancel, rx_cancel) = channel(1);
-                            self.pending.insert(header_id, (round, tx_cancel));
-                            let fut = Self::waiter(wait_for, header, rx_cancel);
-                            waiting.push(fut);
+                        //     // Add the header to the waiter pool. The waiter will return it to when all
+                        //     // its parents are in the store.
+                        //     let mut wait_for = Vec::new();
+                        //     wait_for.push((missing_header_id.to_vec(), self.store.clone()));
+                        //     let (tx_cancel, rx_cancel) = channel(1);
+                        //     self.pending.insert(header_id, (round, tx_cancel));
+                        //     let fut = Self::waiter(wait_for, header, rx_cancel);
+                        //     waiting.push(fut);
 
-                            // Ensure we didn't already send a sync request for these parents.
-                            let mut requires_sync = HashMap::new();
-                            for (digest, worker_id) in missing.into_iter() {
-                                self.batch_requests.entry(digest.clone()).or_insert_with(|| {
-                                    requires_sync.entry(worker_id).or_insert_with(Vec::new).push(digest);
-                                    round
-                                });
-                            }
-                            for (worker_id, digests) in requires_sync {
-                                let address = self.committee
-                                    .worker(&author, &worker_id)
-                                    .expect("Author of valid header is not in the committee")
-                                    .primary_to_worker;
-                                let message = PrimaryWorkerMessage::Synchronize(digests, author);
-                                let bytes = bincode::serialize(&message)
-                                    .expect("Failed to serialize batch sync request");
-                                self.network.send(address, Bytes::from(bytes)).await;
-                            }
-                        }
+                        //     // Ensure we didn't already send a sync request for these parents.
+                        //     // let mut requires_sync = HashMap::new();
+                        
+                        //     self.payload_requests.entry(missing_header_id.clone()).or_insert(round);
+                            
+                        //     let address = self.committee
+                        //             .primary(&author)
+                        //             .expect("Author of valid header is not in the committee")
+                        //             .primary_to_primary;
+                        //     let message = PrimaryMessage::PayloadRequest(missing_header_id, author);
+                        //     let bytes = bincode::serialize(&message)
+                        //         .expect("Failed to serialize batch sync request");
+                        //     self.network.send(address, Bytes::from(bytes)).await;
+                            
+                        // }
 
                         WaiterMessage::SyncParents(missing, header) => {
                             debug!("Synching the parents of {}", header);
@@ -226,9 +217,9 @@ impl HeaderWaiter {
                 Some(result) = waiting.next() => match result {
                     Ok(Some(header)) => {
                         let _ = self.pending.remove(&header.id);
-                        for x in &header.payload {
-                            let _ = self.batch_requests.remove(x);
-                        }
+                        // for x in &header.payload {
+                        //     let _ = self.batch_requests.remove(x);
+                        // }
                         for x in &header.parents {
                             let _ = self.parent_requests.remove(x);
                         }
@@ -285,7 +276,7 @@ impl HeaderWaiter {
                     }
                 }
                 self.pending.retain(|_, (r, _)| r > &mut gc_round);
-                self.batch_requests.retain(|_, r| r > &mut gc_round);
+                // self.payload_requests.retain(|_, r| r > &mut gc_round);
                 self.parent_requests.retain(|_, (r, _)| r > &mut gc_round);
             }
         }
