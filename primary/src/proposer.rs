@@ -29,6 +29,7 @@ pub struct Proposer {
     /// The size of the headers' payload.
     header_size: usize,
     batch_size: usize,
+    tx_size: usize,
     /// The maximum delay to wait for batches' digests.
     max_header_delay: u64,
 
@@ -71,6 +72,7 @@ impl Proposer {
         signature_service: SignatureService,
         header_size: usize,
         batch_size: usize,
+        tx_size: usize,
         max_header_delay: u64,
         rx_core: Receiver<(Vec<Certificate>, Round)>,
         rx_workers: Receiver<Vec<Transaction>>,
@@ -88,6 +90,7 @@ impl Proposer {
                 signature_service,
                 header_size,
                 batch_size,
+                tx_size,
                 max_header_delay,
                 rx_core,
                 rx_workers,
@@ -156,10 +159,16 @@ impl Proposer {
             NoVoteCert::new(0) // Assuming NoVoteCert::new creates an empty certificate
         };
 
+        let limit = if self.txns.len()*self.tx_size <= self.header_size {
+            self.txns.len()
+        }else {
+            self.header_size/self.tx_size
+        };
+
         let header = Header::new(
             self.name,
             self.round,
-            self.txns.drain(..).collect(),
+            self.txns.drain(..limit).collect(),
             self.last_parents.drain(..).map(|x| x.digest()).collect(),
             timeout_cert,
             no_vote_cert,
@@ -170,9 +179,9 @@ impl Proposer {
         // debug!("Created {:?}", header.id);
 
         #[cfg(feature = "benchmark")]
-        {
+        {   
             info!("Created {:?}", header.id);
-            info!("Header {:?} contains {} B", header.id, header.payload.len()*512);
+            info!("Header {:?} contains {} B", header.id, header.payload.len()*self.tx_size);
             
             let tx_ids: Vec<_> = header
                 .payload

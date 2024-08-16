@@ -61,11 +61,11 @@ impl GarbageCollector {
                 self.consensus_round.store(round, Ordering::Relaxed);
 
                 // Trigger cleanup on the workers..
-                let bytes = bincode::serialize(&PrimaryWorkerMessage::Cleanup(round))
-                    .expect("Failed to serialize our own message");
-                self.network
-                    .broadcast(self.addresses.clone(), Bytes::from(bytes))
-                    .await;
+                // let bytes = bincode::serialize(&PrimaryWorkerMessage::Cleanup(round))
+                //     .expect("Failed to serialize our own message");
+                // self.network
+                //     .broadcast(self.addresses.clone(), Bytes::from(bytes))
+                //     .await;
             }
         }
     }

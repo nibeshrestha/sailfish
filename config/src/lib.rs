@@ -77,6 +77,7 @@ pub struct Parameters {
     /// The preferred batch size. The workers seal a batch of transactions when it reaches this size.
     /// Denominated in bytes.
     pub batch_size: usize,
+    pub tx_size: usize,
     /// The delay after which the workers seal a batch of transactions, even if `max_batch_size`
     /// is not reached. Denominated in ms.
     pub max_batch_delay: u64,
@@ -91,6 +92,7 @@ impl Default for Parameters {
             sync_retry_delay: 5_000,
             sync_retry_nodes: 3,
             batch_size: 500_000,
+            tx_size: 512,
             max_batch_delay: 100,
         }
     }

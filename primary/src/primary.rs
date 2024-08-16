@@ -75,7 +75,7 @@ impl Primary {
         rx_consensus: Receiver<Certificate>,
         tx_consensus_header: Sender<Header>,
     ) {
-        let (tx_others_digests, rx_others_digests) = channel(CHANNEL_CAPACITY);
+        // let (tx_others_digests, rx_others_digests) = channel(CHANNEL_CAPACITY);
         let (tx_our_digests, rx_our_digests) = channel(CHANNEL_CAPACITY);
         let (tx_parents, rx_parents) = channel(CHANNEL_CAPACITY);
         let (tx_headers, rx_headers) = channel(CHANNEL_CAPACITY);
@@ -122,12 +122,12 @@ impl Primary {
             name, address
         );
 
-        // // Spawn the network receiver listening to messages from our workers.
-        // let mut address = committee
-        //     .primary(&name)
-        //     .expect("Our public key or worker id is not in the committee")
-        //     .worker_to_primary;
-        // address.set_ip("0.0.0.0".parse().unwrap());
+        // Spawn the network receiver listening to messages from our workers.
+        let mut address = committee
+            .primary(&name)
+            .expect("Our public key or worker id is not in the committee")
+            .worker_to_primary;
+        address.set_ip("0.0.0.0".parse().unwrap());
         // NetworkReceiver::spawn(
         //     address,
         //     /* handler */
@@ -191,7 +191,7 @@ impl Primary {
         GarbageCollector::spawn(&name, &committee, consensus_round.clone(), rx_consensus);
 
         // Receives batch digests from other workers. They are only used to validate headers.
-        PayloadReceiver::spawn(store.clone(), /* rx_workers */ rx_others_digests);
+        // PayloadReceiver::spawn(store.clone(), /* rx_workers */ rx_others_digests);
 
         // Whenever the `Synchronizer` does not manage to validate a header due to missing parent certificates of
         // batch digests, it commands the `HeaderWaiter` to synchronizer with other nodes, wait for their reply, and
@@ -224,6 +224,7 @@ impl Primary {
             signature_service,
             parameters.header_size,
             parameters.batch_size,
+            parameters.tx_size,
             parameters.max_header_delay,
             /* rx_core */ rx_parents,
             /* rx_workers */ rx_our_digests,
@@ -264,18 +265,6 @@ impl MessageHandler for PrimaryReceiverHandler {
         let _ = writer.send(Bytes::from("Ack")).await;
 
         // Deserialize and parse the message.
-        match bincode::deserialize(&serialized).map_err(DagError::SerializationError)? {
-            PrimaryMessage::CertificatesRequest(missing, requestor) => self
-                .tx_cert_requests
-                .send((missing, requestor))
-                .await
-                .expect("Failed to send primary message"),
-            request => self
-                .tx_primary_messages
-                .send(request)
-                .await
-                .expect("Failed to send certificate"),
-        }
         match bincode::deserialize(&serialized).map_err(DagError::SerializationError)? {
             PrimaryMessage::CertificatesRequest(missing, requestor) => self
                 .tx_cert_requests
