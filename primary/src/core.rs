@@ -32,7 +32,7 @@ pub struct Core {
     /// The persistent storage.
     store: Store,
     /// Handles synchronization with other nodes and our workers.
-    // synchronizer: Synchronizer,
+    synchronizer: Synchronizer,
     /// Service to sign headers.
     signature_service: SignatureService,
     bls_signature_service: BlsSignatureService,
@@ -96,7 +96,7 @@ impl Core {
         committee: Committee,
         sorted_keys: Arc<Vec<PublicKeyShareG2>>,
         store: Store,
-        // synchronizer: Synchronizer,
+        synchronizer: Synchronizer,
         signature_service: SignatureService,
         bls_signature_service: BlsSignatureService,
         consensus_round: Arc<AtomicU64>,
@@ -120,7 +120,7 @@ impl Core {
                 committee,
                 sorted_keys: sorted_keys,
                 store,
-                // synchronizer,
+                synchronizer,
                 signature_service,
                 bls_signature_service,
                 consensus_round,
@@ -445,13 +445,13 @@ impl Core {
 
         // Ensure we have all the ancestors of this certificate yet. If we don't, the synchronizer will gather
         // them and trigger re-processing of this certificate.
-        // if !self.synchronizer.deliver_certificate(&certificate).await? {
-        //     debug!(
-        //         "Processing of {:?} suspended: missing ancestors",
-        //         certificate
-        //     );
-        //     return Ok(());
-        // }
+        if !self.synchronizer.deliver_certificate(&certificate).await? {
+            debug!(
+                "Processing of {:?} suspended: missing ancestors",
+                certificate
+            );
+            return Ok(());
+        }
 
         // Store the certificate.
         let bytes = bincode::serialize(&certificate).expect("Failed to serialize certificate");
