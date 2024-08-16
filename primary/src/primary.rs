@@ -196,17 +196,17 @@ impl Primary {
         // Whenever the `Synchronizer` does not manage to validate a header due to missing parent certificates of
         // batch digests, it commands the `HeaderWaiter` to synchronizer with other nodes, wait for their reply, and
         // re-schedule execution of the header once we have all missing data.
-        // HeaderWaiter::spawn(
-        //     name,
-        //     committee.clone(),
-        //     store.clone(),
-        //     consensus_round,
-        //     parameters.gc_depth,
-        //     parameters.sync_retry_delay,
-        //     parameters.sync_retry_nodes,
-        //     /* rx_synchronizer */ rx_sync_headers,
-        //     /* tx_core */ tx_headers_loopback,
-        // );
+        HeaderWaiter::spawn(
+            name,
+            committee.clone(),
+            store.clone(),
+            consensus_round,
+            parameters.gc_depth,
+            parameters.sync_retry_delay,
+            parameters.sync_retry_nodes,
+            /* rx_synchronizer */ rx_sync_headers,
+            /* tx_core */ tx_headers_loopback,
+        );
 
         // The `CertificateWaiter` waits to receive all the ancestors of a certificate before looping it back to the
         // `Core` for further processing.

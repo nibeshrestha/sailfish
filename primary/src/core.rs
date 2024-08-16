@@ -250,35 +250,39 @@ impl Core {
         // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
         // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
         // reschedule processing of this header.
-        // let parents = self.synchronizer.get_parents(header).await?;
-        // if parents.is_empty() {
-        //     debug!("Processing of {} suspended: missing parent(s)", header.id);
-        //     return Ok(());
-        // }
 
-        // //Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
-        // let mut stake = 0;
-        // let mut has_leader = false;
-        // for x in parents {
-        //     ensure!(
-        //         x.round() + 1 == header.round,
-        //         DagError::MalformedHeader(header.id.clone())
-        //     );
-        //     stake += self.committee.stake(&x.origin());
-            
-        //     has_leader = has_leader || self.committee.leader((header.round - 1) as usize).eq(&x.origin);
-        // }
-        // ensure!(
-        //     stake >= self.committee.quorum_threshold(),
-        //     DagError::HeaderRequiresQuorum(header.id.clone())
-        // );
+        if header.round != 1  {
+            let parents = self.synchronizer.get_parents(header).await?;
+            if parents.is_empty() {
+                debug!("Processing of {} suspended: missing parent(s)", header.id);
+                return Ok(());
+            }
+            info!("{:?}", parents);
+            //Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
+            let mut stake = 0;
+            let mut has_leader = false;
+            for x in parents {
+                ensure!(
+                    x.round() + 1 == header.round,
+                    DagError::MalformedHeader(header.id.clone())
+                );
+                stake += self.committee.stake(&x.origin());
+                
+                has_leader = has_leader || self.committee.leader((header.round - 1) as usize).eq(&x.origin);
+            }
+            ensure!(
+                stake >= self.committee.quorum_threshold(),
+                DagError::HeaderRequiresQuorum(header.id.clone())
+            );
 
-        // if !has_leader {
-        //     header.timeout_cert.verify(&self.committee)?;
-        //     if self.committee.leader(header.round as usize).eq(&header.author) {
-        //         header.no_vote_cert.verify(&self.committee)?;
-        //     }
-        // }
+            if !has_leader {
+                header.timeout_cert.verify(&self.committee)?;
+                if self.committee.leader(header.round as usize).eq(&header.author) {
+                    header.no_vote_cert.verify(&self.committee)?;
+                }
+            }
+        }
+        
 
         
         //NO NEED TO CHECK FOR MISSING PAYLOAD BECAUSE HEADER ITSELF CONTAINS TRANSACTIONS.
