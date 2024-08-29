@@ -29,7 +29,8 @@ def local(ctx, debug=False):
         'sync_retry_nodes': 3,  # number of nodes
         'batch_size': 50_000,  # bytes
         'tx_size': bench_params['tx_size'],
-        'max_batch_delay': 200  # ms
+        'max_batch_delay': 200,  # ms
+        'leaders_per_round': 3
     }
     try:
         ret = LocalBench(bench_params, node_params).run(debug)
@@ -117,8 +118,10 @@ def remote(ctx, burst = 50, debug=False):
         'gc_depth': 50,  # rounds
         'sync_retry_delay': 10_000,  # ms
         'sync_retry_nodes': 3,  # number of nodes
-        'batch_size': 512_000,  # bytes
-        'max_batch_delay': 200  # ms
+        'batch_size': 512_000,
+        'tx_size': bench_params['tx_size'],  # bytes
+        'max_batch_delay': 200,  # ms
+        'leaders_per_round': 3
     }
     try:
         Bench(ctx).run(bench_params, node_params, debug)

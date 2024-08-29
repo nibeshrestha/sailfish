@@ -81,6 +81,7 @@ pub struct Parameters {
     /// The delay after which the workers seal a batch of transactions, even if `max_batch_size`
     /// is not reached. Denominated in ms.
     pub max_batch_delay: u64,
+    pub leaders_per_round : usize,
 }
 
 impl Default for Parameters {
@@ -94,6 +95,7 @@ impl Default for Parameters {
             batch_size: 500_000,
             tx_size: 512,
             max_batch_delay: 100,
+            leaders_per_round : 3,
         }
     }
 }
@@ -109,6 +111,7 @@ impl Parameters {
         info!("Sync retry nodes set to {} nodes", self.sync_retry_nodes);
         info!("Batch size set to {} B", self.batch_size);
         info!("Max batch delay set to {} ms", self.max_batch_delay);
+        info!("Leaders per round set to {}", self.leaders_per_round);
     }
 }
 
@@ -190,6 +193,23 @@ impl Committee {
         let mut keys: Vec<_> = self.authorities.keys().cloned().collect();
         keys.sort();
         keys[seed % self.size()]
+    }
+
+    pub fn sub_leaders(&self, seed: usize, num_leaders: usize) -> Vec<PublicKey> {
+        let mut keys: Vec<_> = self.authorities.keys().cloned().collect();
+        keys.sort();
+
+        // Find the index of the seed in the sorted keys vector
+        let seed_index = seed % self.size();
+
+        // Collect the subsequent num_leader-1 pubKeys in the sorted array from the seed
+        let mut sub_leaders = Vec::with_capacity(num_leaders - 1);
+        for i in 1..num_leaders {
+            let index = (seed_index + i) % self.size(); // Wrap around if needed
+            sub_leaders.push(keys[index].clone());
+        }
+
+        sub_leaders
     }
 
     /// Returns the primary addresses of the target primary.

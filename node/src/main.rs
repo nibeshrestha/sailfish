@@ -150,6 +150,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
                 rx_consensus_header,
                 /* tx_primary */ tx_feedback,
                 tx_output,
+                parameters.leaders_per_round,
             );
         }
 

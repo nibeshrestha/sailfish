@@ -21,7 +21,7 @@ pub struct Header {
     pub id: Digest,
     pub signature: Signature,
     pub timeout_cert: TimeoutCert,
-    pub no_vote_cert: NoVoteCert,
+    pub no_vote_certs: Vec<NoVoteCert>,
 }
 
 impl Header {
@@ -31,7 +31,7 @@ impl Header {
         payload: Vec<Transaction>,
         parents: BTreeSet<Digest>,
         timeout_cert: TimeoutCert,
-        no_vote_cert: NoVoteCert,
+        no_vote_certs: Vec<NoVoteCert>,
         signature_service: &mut SignatureService,
     ) -> Self {
         let header = Self {
@@ -42,7 +42,7 @@ impl Header {
             id: Digest::default(),
             signature: Signature::default(),
             timeout_cert,
-            no_vote_cert,
+            no_vote_certs,
         };
         let id = header.digest();
         let signature = signature_service.request_signature(id.clone()).await;
@@ -172,6 +172,7 @@ impl fmt::Display for Timeout {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct NoVoteMsg {
     pub round: Round,
+    pub leader: PublicKey,
     pub author: PublicKey,
     pub signature: Signature,
 }
@@ -179,11 +180,13 @@ pub struct NoVoteMsg {
 impl NoVoteMsg {
     pub async fn new(
         round: Round,
+        leader: PublicKey,
         author: PublicKey,
         signature_service: &mut SignatureService,
     ) -> Self {
         let msg = Self {
             round,
+            leader,
             author,
             signature: Signature::default(),
         };

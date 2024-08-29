@@ -85,7 +85,7 @@ pub struct Core {
     /// Aggregates timeouts to use for sending timeout certificate.
     timeouts_aggregators: HashMap<Round, Box<TimeoutAggregator>>,
     /// Aggregates no vote messages to use for sending no vote certificates.
-    no_vote_aggregators: HashMap<Round, Box<NoVoteAggregator>>,
+    no_vote_aggregators: HashMap<Round, HashMap<PublicKey, Box<NoVoteAggregator>>>,
 }
 
 impl Core {
@@ -278,7 +278,9 @@ impl Core {
             if !has_leader {
                 header.timeout_cert.verify(&self.committee)?;
                 if self.committee.leader(header.round as usize).eq(&header.author) {
-                    header.no_vote_cert.verify(&self.committee)?;
+                    for nvc in header.no_vote_certs.clone() {
+                        nvc.verify(&self.committee)?;
+                    }
                 }
             }
         }
@@ -357,9 +359,13 @@ impl Core {
         debug!("Processing {:?}", no_vote_msg);
 
         // Check if there's already an aggregator for this round, prepare to add if not
-        if !self.no_vote_aggregators.contains_key(&no_vote_msg.round) {
+        if !self.no_vote_aggregators
+        .entry(no_vote_msg.round).
+        or_insert_with(|| HashMap::new()).
+        contains_key(&no_vote_msg.leader) {
             let initial_no_vote_msg = NoVoteMsg::new(
                 no_vote_msg.round,
+                no_vote_msg.leader,
                 self.name.clone(),
                 &mut self.signature_service
             ).await;
@@ -369,14 +375,19 @@ impl Core {
             aggregator.append(initial_no_vote_msg, &self.committee)?;
 
             // Insert the new aggregator into the map
-            self.no_vote_aggregators.insert(no_vote_msg.round, Box::new(aggregator));
+            self.no_vote_aggregators
+                .entry(no_vote_msg.round)
+                .or_insert_with(|| HashMap::new())
+                .insert(no_vote_msg.leader, Box::new(aggregator));
         }
 
         // Check if we have no vote messages to create a no vote cert to propose next header(as a leader).
         if let Some(no_vote_cert) = self
             .no_vote_aggregators
             .entry(no_vote_msg.round)
-            .or_insert_with(|| Box::new(NoVoteAggregator::new()))
+            .or_insert_with(|| HashMap::new())
+            .entry(no_vote_msg.leader)
+            .or_insert(Box::new(NoVoteAggregator::new()))
             .append(no_vote_msg.clone(), &self.committee)?
         {
             // Send it to the `Proposer`.

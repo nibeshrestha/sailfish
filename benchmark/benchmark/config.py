@@ -215,6 +215,7 @@ class NodeParameters:
             inputs += [json['batch_size']]
             inputs += [json['max_batch_delay']]
             inputs += [json['tx_size']]
+            inputs += [json['leaders_per_round']]
         except KeyError as e:
             raise ConfigError(f'Malformed parameters: missing key {e}')
 
