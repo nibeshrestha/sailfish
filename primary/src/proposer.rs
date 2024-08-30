@@ -1,4 +1,3 @@
-use crate::batch_maker::Transaction;
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::messages::{Certificate, Header, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert};
 use crate::primary::Round;
@@ -11,8 +10,11 @@ use log::{debug, warn};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::os::unix::thread;
+use std::thread as txReceiverThread;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration, Instant};
+pub type Transaction = Vec<u8>;
 
 #[cfg(test)]
 #[path = "tests/proposer_tests.rs"]
@@ -36,7 +38,7 @@ pub struct Proposer {
     /// Receives the parents to include in the next header (along with their round number).
     rx_core: Receiver<(Vec<Certificate>, Round)>,
     /// Receives the batch digest from our workers.
-    rx_workers: Receiver<Vec<Transaction>>,
+    rx_workers: Receiver<Transaction>,
     /// Sends newly created headers to the `Core`.
     tx_core: Sender<Header>,
     /// Sends newly created timeouts to the `Core`.
@@ -75,7 +77,7 @@ impl Proposer {
         tx_size: usize,
         max_header_delay: u64,
         rx_core: Receiver<(Vec<Certificate>, Round)>,
-        rx_workers: Receiver<Vec<Transaction>>,
+        rx_workers: Receiver<Transaction>,
         tx_core: Sender<Header>,
         tx_core_timeout: Sender<Timeout>,
         rx_timeout_cert: Receiver<(TimeoutCert, Round)>,
@@ -301,9 +303,9 @@ impl Proposer {
                     // (2) Also implement the wait for leader idea what is was there before
                     advance = self.update_leader();
                 }
-                Some(txns) = self.rx_workers.recv() => {
-                    self.payload_size += txns.iter().map(|txn| txn.len()).sum::<usize>();
-                    self.txns.extend(txns);
+                Some(txn) = self.rx_workers.recv() => {
+                    self.payload_size += txn.len();
+                    self.txns.push(txn);
                 }
                 Some((timeout_cert, round)) = self.rx_timeout_cert.recv() => {
                     match round.cmp(&self.last_timeout_cert.round) {

@@ -1,4 +1,3 @@
-use crate::batch_maker::Transaction;
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::primary::Round;
@@ -14,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::convert::TryInto;
 use std::fmt;
+pub type Transaction = Vec<u8>;
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Header {

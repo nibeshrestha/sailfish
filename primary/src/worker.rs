@@ -1,4 +1,3 @@
-use crate::batch_maker::{Batch, BatchMaker, Transaction};
 use async_trait::async_trait;
 use bytes::Bytes;
 use config::{Committee, Parameters, WorkerId};
@@ -8,6 +7,9 @@ use network::{MessageHandler, Receiver, Writer};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use tokio::sync::mpsc::{channel, Sender};
+
+pub type Transaction = Vec<u8>;
+pub type Batch = Vec<Transaction>;
 
 // #[cfg(test)]
 // #[path = "tests/worker_tests.rs"]
@@ -36,7 +38,7 @@ pub struct Worker {
     committee: Committee,
     /// The configuration parameters.
     parameters: Parameters,
-    tx_txns: Sender<Vec<Transaction>>,
+    tx_txns: Sender<Transaction>,
 }
 
 impl Worker {
@@ -45,7 +47,7 @@ impl Worker {
         id: WorkerId,
         committee: Committee,
         parameters: Parameters,
-        tx_txns: Sender<Vec<Transaction>>,
+        tx_txns: Sender<Transaction>,
     ) {
         // Define a worker instance.
         let worker = Self {
@@ -75,8 +77,7 @@ impl Worker {
 
     /// Spawn all tasks responsible to handle clients transactions.
     fn handle_clients_transactions(&self) {
-        let (tx_batch_maker, rx_batch_maker) = channel(CHANNEL_CAPACITY);
-
+        let tx_txns = self.tx_txns.clone();
         // We first receive clients' transactions from the network.
         let mut address = self
             .committee
@@ -84,20 +85,17 @@ impl Worker {
             .expect("Our public key or worker id is not in the committee")
             .transactions;
         address.set_ip("0.0.0.0".parse().unwrap());
-        Receiver::spawn(
-            address,
-            /* handler */ TxReceiverHandler { tx_batch_maker },
-        );
+        Receiver::spawn(address, /* handler */ TxReceiverHandler { tx_txns });
 
         // The transactions are sent to the `BatchMaker` that assembles them into batches. It then broadcasts
         // (in a reliable manner) the batches to all other workers that share the same `id` as us. Finally, it
         // gathers the 'cancel handlers' of the messages and send them to the `QuorumWaiter`.
-        BatchMaker::spawn(
-            self.parameters.batch_size,
-            self.parameters.max_batch_delay,
-            /* rx_transaction */ rx_batch_maker,
-            self.tx_txns.clone(),
-        );
+        // BatchMaker::spawn(
+        //     self.parameters.batch_size,
+        //     self.parameters.max_batch_delay,
+        //     /* rx_transaction */ rx_batch_maker,
+        //     self.tx_txns.clone(),
+        // );
 
         info!(
             "Worker {} listening to client transactions on {}",
@@ -109,14 +107,14 @@ impl Worker {
 /// Defines how the network receiver handles incoming transactions.
 #[derive(Clone)]
 struct TxReceiverHandler {
-    tx_batch_maker: Sender<Transaction>,
+    tx_txns: Sender<Transaction>,
 }
 
 #[async_trait]
 impl MessageHandler for TxReceiverHandler {
     async fn dispatch(&self, _writer: &mut Writer, message: Bytes) -> Result<(), Box<dyn Error>> {
         // Send the transaction to the batch maker.
-        self.tx_batch_maker
+        self.tx_txns
             .send(message.to_vec())
             .await
             .expect("Failed to send transaction");

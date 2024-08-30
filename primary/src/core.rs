@@ -79,6 +79,7 @@ pub struct Core {
     // votes_aggregator: VotesAggregator,
     processing_headers: HashMap<Digest, Header>,
     processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
+    processed_headers: HashSet<Digest>,
     /// Aggregates certificates to use as parents for new headers.
     certificates_aggregators: HashMap<Round, Box<CertificatesAggregator>>,
     /// A network sender to send the batches to the other workers.
@@ -145,6 +146,7 @@ impl Core {
                 last_voted: HashMap::with_capacity(2 * gc_depth as usize),
                 processing_headers: HashMap::new(),
                 processing_vote_aggregators: HashMap::new(),
+                processed_headers: HashSet::new(),
                 certificates_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 network: ReliableSender::new(),
                 cancel_handlers: HashMap::with_capacity(2 * gc_depth as usize),
@@ -244,15 +246,23 @@ impl Core {
     #[async_recursion]
     async fn process_header(&mut self, header: &Header) -> DagResult<()> {
         debug!("Processing {:?}", header);
-        // Send header to consensus
+
         self.tx_consensus_header
             .send(header.clone())
             .await
             .expect("Failed to send header to consensus");
-        // Indicate that we are processing this header.
+        // Send header to consensus
         self.processing_headers
             .entry(header.id.clone())
             .or_insert(header.clone());
+        self.processing_vote_aggregators
+            .entry(header.id.clone())
+            .or_insert(VotesAggregator::new(
+                self.sorted_keys.clone(),
+                self.committee.size(),
+            ));
+
+        // Indicate that we are processing this header.
 
         // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
         // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
@@ -321,6 +331,9 @@ impl Core {
             // Make a vote and send it to all nodes
             let vote = Vote::new(header, &self.name, &mut self.bls_signature_service).await;
             // debug!("Created {:?}", vote);
+            self.process_vote(vote.clone())
+                .await
+                .expect("Failed to process our own vote");
 
             let addresses = self
                 .committee
@@ -335,11 +348,8 @@ impl Core {
                 .entry(header.round)
                 .or_insert_with(Vec::new)
                 .extend(handlers);
-
-            self.process_vote(vote)
-                .await
-                .expect("Failed to process our own vote");
         }
+
         Ok(())
     }
 
@@ -406,6 +416,15 @@ impl Core {
     #[async_recursion]
     async fn process_vote(&mut self, vote: Vote) -> DagResult<()> {
         debug!("Processing {:?}", vote);
+
+        if !self.processing_vote_aggregators.contains_key(&vote.id) {
+            self.processing_vote_aggregators
+                .entry(vote.id.clone())
+                .or_insert(VotesAggregator::new(
+                    self.sorted_keys.clone(),
+                    self.committee.size(),
+                ));
+        }
 
         // Add it to the votes' aggregator and try to make a new certificate.
         if let (Some(header), Some(vote_aggregator)) = (
@@ -497,6 +516,7 @@ impl Core {
                 id, e
             );
         }
+
         self.processing_headers.remove(&id);
         self.processing_vote_aggregators.remove(&id);
         Ok(())
@@ -563,11 +583,16 @@ impl Core {
             self.gc_round <= certificate.round(),
             DagError::TooOld(certificate.digest(), certificate.round())
         );
+        if !self.processed_headers.contains(&certificate.header_id) {
+            // Verify the certificate (and the embedded header).
+            self.processed_headers.insert(certificate.header_id.clone());
+            certificate
+                .verify(&self.committee, &self.sorted_keys, &self.combined_pubkey)
+                .map_err(DagError::from)
+        } else {
+            Ok(())
+        }
 
-        // Verify the certificate (and the embedded header).
-        certificate
-            .verify(&self.committee, &self.sorted_keys, &self.combined_pubkey)
-            .map_err(DagError::from)
         // Ok(())
     }
 

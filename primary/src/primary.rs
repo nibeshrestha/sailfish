@@ -77,7 +77,7 @@ impl Primary {
         tx_consensus_header: Sender<Header>,
     ) {
         // let (tx_others_digests, rx_others_digests) = channel(CHANNEL_CAPACITY);
-        let (tx_our_digests, rx_our_digests) = channel(CHANNEL_CAPACITY);
+        let (tx_txns, rx_txns) = channel(CHANNEL_CAPACITY);
         let (tx_parents, rx_parents) = channel(CHANNEL_CAPACITY);
         let (tx_headers, rx_headers) = channel(CHANNEL_CAPACITY);
         let (tx_timeout, rx_timeout) = channel(CHANNEL_CAPACITY);
@@ -142,13 +142,7 @@ impl Primary {
         //     name, address
         // );
 
-        Worker::spawn(
-            name,
-            0,
-            committee.clone(),
-            parameters.clone(),
-            tx_our_digests,
-        );
+        Worker::spawn(name, 0, committee.clone(), parameters.clone(), tx_txns);
 
         //The `Synchronizer` provides auxiliary methods helping to `Core` to sync.
         let synchronizer = Synchronizer::new(
@@ -229,7 +223,7 @@ impl Primary {
             parameters.tx_size,
             parameters.max_header_delay,
             /* rx_core */ rx_parents,
-            /* rx_workers */ rx_our_digests,
+            /* rx_workers */ rx_txns,
             /* tx_core */ tx_headers,
             /* tx_core_timeout */ tx_timeout,
             rx_timeout_cert,
