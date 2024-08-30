@@ -1,9 +1,9 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
-use crate::messages::{Certificate, Header, Timeout, TimeoutCert, Vote, NoVoteMsg, NoVoteCert};
+use crate::messages::{Certificate, Header, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, Vote};
+use blsttc::{PublicKeyShareG2, SignatureShareG1};
 use config::{Committee, Stake};
-use crypto::{aggregate_sign, combine_key_from_ids, PublicKey, Signature, Digest, Hash};
-use blsttc::{PublicKeyShareG2,SignatureShareG1};
+use crypto::{aggregate_sign, combine_key_from_ids, Digest, Hash, PublicKey, Signature};
 use log::info;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -48,28 +48,26 @@ impl VotesAggregator {
         // }
 
         self.votes.push((author_bls, vote.signature));
-        self.weight += committee.stake(&author);     
+        self.weight += committee.stake(&author);
 
         let id = self.sorted_keys.binary_search(&author_bls).unwrap();
         let chunk = id / 128;
         let bit = id % 128;
         //adding it to bitvec
-        self.pk_bit_vec[chunk] |= 1 << bit;   
-    
+        self.pk_bit_vec[chunk] |= 1 << bit;
+
         if self.votes.len() == 1 {
             self.agg_sign = vote.signature;
-
         } else if self.votes.len() >= 2 {
-
             let new_agg_sign = aggregate_sign(&self.agg_sign, &vote.signature);
             self.agg_sign = new_agg_sign;
         }
 
         let leader = committee.leader(vote.round as usize);
-        if !self.used.contains(&leader){
+        if !self.used.contains(&leader) {
             return Ok(None);
         }
-        
+
         if self.weight >= committee.quorum_threshold() {
             self.weight = 0; // Ensures quorum is only reached once.
 
@@ -86,7 +84,7 @@ impl VotesAggregator {
             // let agg_pk = combine_key_from_ids(ids, &self.sorted_keys);
             // // for checking aggregated sign
             // SignatureShareG1::verify_batch(&vote.digest().0, &agg_pk, &self.agg_sign).unwrap();
-            
+
             return Ok(Some(Certificate {
                 header_id: header.digest(),
                 round: header.round,

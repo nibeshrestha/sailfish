@@ -36,7 +36,7 @@ pub struct Worker {
     committee: Committee,
     /// The configuration parameters.
     parameters: Parameters,
-    tx_txns:  Sender<Vec<Transaction>>,
+    tx_txns: Sender<Vec<Transaction>>,
 }
 
 impl Worker {

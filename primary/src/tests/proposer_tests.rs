@@ -25,7 +25,7 @@ async fn propose_empty() {
         /* rx_workers */ rx_our_digests,
         /* tx_core */ tx_headers,
         tx_timeout,
-        rx_timeout_cert
+        rx_timeout_cert,
     );
 
     // Ensure the proposer makes a correct empty header.
@@ -57,7 +57,7 @@ async fn propose_payload() {
         /* rx_workers */ rx_our_digests,
         /* tx_core */ tx_headers,
         tx_timeout,
-        rx_timeout_cert
+        rx_timeout_cert,
     );
 
     // Send enough digests for the header payload.

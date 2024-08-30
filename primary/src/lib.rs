@@ -2,6 +2,7 @@
 #[macro_use]
 mod error;
 mod aggregators;
+mod batch_maker;
 mod certificate_waiter;
 mod core;
 mod garbage_collector;
@@ -12,7 +13,6 @@ mod payload_receiver;
 mod primary;
 mod proposer;
 mod synchronizer;
-mod batch_maker;
 mod worker;
 
 #[cfg(test)]

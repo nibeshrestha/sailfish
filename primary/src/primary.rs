@@ -9,11 +9,12 @@ use crate::messages::{Certificate, Header, NoVoteMsg, Timeout, Vote};
 use crate::payload_receiver::PayloadReceiver;
 use crate::proposer::Proposer;
 use crate::synchronizer::Synchronizer;
+use crate::worker::Worker;
 use async_trait::async_trait;
+use blsttc::PublicKeyShareG2;
 use bytes::Bytes;
 use config::{BlsKeyPair, Committee, KeyPair, Parameters, WorkerId};
 use crypto::{BlsSignatureService, Digest, PublicKey, SignatureService};
-use blsttc::PublicKeyShareG2;
 use futures::sink::SinkExt as _;
 use log::info;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
@@ -23,7 +24,6 @@ use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use crate::worker::Worker;
 
 /// The default channel capacity for each channel of the primary.
 pub const CHANNEL_CAPACITY: usize = 1_000;
@@ -40,7 +40,7 @@ pub enum PrimaryMessage {
     Certificate(Certificate),
     VerifiedCertificate(Certificate),
     CertificatesRequest(Vec<Digest>, /* requestor */ PublicKey),
-    PayloadRequest(Digest, PublicKey)
+    PayloadRequest(Digest, PublicKey),
 }
 
 /// The messages sent by the primary to its workers.

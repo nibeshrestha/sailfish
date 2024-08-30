@@ -150,24 +150,24 @@ impl Consensus {
                             for x in self.order_dag(leader, &state) {
                                 // Update and clean up internal state.
                                 state.update(&x, self.gc_depth);
-            
+
                                 // Add the certificate to the sequence.
                                 sequence.push(x);
                             }
                         }
-            
+
                         // Log the latest committed round of every authority (for debug).
                         if log_enabled!(log::Level::Debug) {
                             for (name, round) in &state.last_committed {
                                 debug!("Latest commit of {}: Round {} with header", name, round);
                             }
                         }
-            
+
                         // Output the sequence in the right order.
                         for certificate in sequence {
                             // #[cfg(not(feature = "benchmark"))]
                             // info!("Committed {} with header", certificate.header);
-                            
+
                             if certificate.round == leader_round {
                                 info!("Committed {:?} Leader", certificate.header_id);
                             }else if certificate.round == leader_round-1 {
@@ -175,13 +175,13 @@ impl Consensus {
                             } else{
                                 info!("Committed {:?} ", certificate.header_id);
                             }
-                            
-            
+
+
                             self.tx_primary
                                 .send(certificate.clone())
                                 .await
                                 .expect("Failed to send certificate to primary with header");
-            
+
                             if let Err(e) = self.tx_output.send(certificate).await {
                                 warn!("Failed to output certificate: {} with header", e);
                             }
@@ -192,17 +192,17 @@ impl Consensus {
                 Some(certificate) = self.rx_primary.recv() => {
                     debug!("Processing {:?}", certificate);
                     let round = certificate.round();
-        
+
                     // Add the new certificate to the local storage.
                     state
                         .dag
                         .entry(round)
                         .or_insert_with(HashMap::new)
                         .insert(certificate.origin(), (certificate.digest(), certificate));
-        
+
                     // Try to order the dag to commit. Start from the previous round and check if it is a leader round.
                     let r = round - 1;
-        
+
                     // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
                     let leader_round = r;
                     if leader_round <= state.last_committed_round {
@@ -212,7 +212,7 @@ impl Consensus {
                         Some(x) => x,
                         None => continue,
                     };
-        
+
                     // Check if the leader has f+1 support from its children (ie. round r-1).
                     let stake: Stake = state
                         .dag
@@ -222,7 +222,7 @@ impl Consensus {
                         .filter(|(_, x)| x.parents.contains(leader_digest))
                         .map(|(_, x)| self.committee.stake(&x.origin()))
                         .sum();
-        
+
                     // If it is the case, we can commit the leader. But first, we need to recursively go back to
                     // the last committed leader, and commit all preceding leaders in the right order. Committing
                     // a leader block means committing all its dependencies.
@@ -230,7 +230,7 @@ impl Consensus {
                         debug!("Leader {:?} does not have enough support", leader);
                         continue;
                     }
-        
+
                     // Get an ordered list of past leaders that are linked to the current leader.
                     debug!("Leader {:?} has enough support", leader);
                     let mut sequence = Vec::new();
@@ -239,24 +239,24 @@ impl Consensus {
                         for x in self.order_dag(leader, &state) {
                             // Update and clean up internal state.
                             state.update(&x, self.gc_depth);
-        
+
                             // Add the certificate to the sequence.
                             sequence.push(x);
                         }
                     }
-        
+
                     // Log the latest committed round of every authority (for debug).
                     if log_enabled!(log::Level::Debug) {
                         for (name, round) in &state.last_committed {
                             debug!("Latest commit of {}: Round {}", name, round);
                         }
                     }
-        
+
                     // Output the sequence in the right order.
                     for certificate in sequence {
 
                         // #[cfg(not(feature = "benchmark"))]
-                        
+
                         if certificate.round == leader_round {
                             info!("Committed {:?} Leader", certificate.header_id);
                         }else if certificate.round == leader_round-1 {
@@ -264,12 +264,12 @@ impl Consensus {
                         }else{
                             info!("Committed {:?} ", certificate.header_id);
                         }
-        
+
                         self.tx_primary
                             .send(certificate.clone())
                             .await
                             .expect("Failed to send certificate to primary");
-        
+
                         if let Err(e) = self.tx_output.send(certificate).await {
                             warn!("Failed to output certificate: {}", e);
                         }
@@ -301,9 +301,7 @@ impl Consensus {
     fn order_leaders(&self, leader: &Certificate, state: &State) -> Vec<Certificate> {
         let mut to_commit = vec![leader.clone()];
         let mut leader = leader;
-        for r in (state.last_committed_round + 1..=leader.round() - 1)
-            .rev()
-        {
+        for r in (state.last_committed_round + 1..=leader.round() - 1).rev() {
             // Get the certificate proposed by the previous leader.
             let (_, prev_leader) = match self.leader(r, &state.dag) {
                 Some(x) => x,

@@ -1,8 +1,7 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use blsttc::{
-    G1Affine, G1Projective, G2Affine, G2Projective, PublicKeyG2,
-    PublicKeyShareG2 , SecretKeySet, SecretKeyShare,
-    SignatureG1, SignatureShareG1,
+    G1Affine, G1Projective, G2Affine, G2Projective, PublicKeyG2, PublicKeyShareG2, SecretKeySet,
+    SecretKeyShare, SignatureG1, SignatureShareG1,
 };
 use ed25519_dalek as dalek;
 use ed25519_dalek::ed25519;
@@ -297,7 +296,10 @@ pub fn aggregate_sign(agg_sig: &SignatureShareG1, new_sign: &SignatureShareG1) -
     sign
 }
 
-pub fn aggregate_pubkey(agg_key: &PublicKeyShareG2, new_key: &PublicKeyShareG2) -> PublicKeyShareG2 {
+pub fn aggregate_pubkey(
+    agg_key: &PublicKeyShareG2,
+    new_key: &PublicKeyShareG2,
+) -> PublicKeyShareG2 {
     let agg_key = G2Affine::from(agg_key.0 .0 + G2Projective::from(new_key.0 .0));
     let key = PublicKeyShareG2(PublicKeyG2(agg_key));
     key
