@@ -29,6 +29,7 @@ pub struct Core {
     /// The committee information.
     committee: Committee,
     sorted_keys: Arc<Vec<PublicKeyShareG2>>,
+    combined_pubkey : PublicKeyShareG2,
     /// The persistent storage.
     store: Store,
     /// Handles synchronization with other nodes and our workers.
@@ -95,6 +96,7 @@ impl Core {
         name_bls: PublicKeyShareG2,
         committee: Committee,
         sorted_keys: Arc<Vec<PublicKeyShareG2>>,
+        combined_pubkey : PublicKeyShareG2,
         store: Store,
         synchronizer: Synchronizer,
         signature_service: SignatureService,
@@ -118,7 +120,8 @@ impl Core {
                 name,
                 name_bls,
                 committee,
-                sorted_keys: sorted_keys,
+                sorted_keys,
+                combined_pubkey,
                 store,
                 synchronizer,
                 signature_service,
@@ -401,7 +404,7 @@ impl Core {
             // Add it to the votes' aggregator and try to make a new certificate.
             if let Some(certificate) =
             vote_aggregator
-                .append(vote, &self.committee, header)?
+                .append(vote, &self.committee, header, &self.combined_pubkey)?
             {
                 debug!("Assembled {:?}", certificate);
 
@@ -554,7 +557,7 @@ impl Core {
         );
 
         // Verify the certificate (and the embedded header).
-        certificate.verify(&self.committee,&self.sorted_keys).map_err(DagError::from)
+        certificate.verify(&self.committee,&self.sorted_keys, &self.combined_pubkey).map_err(DagError::from)
         // Ok(())
     }
 

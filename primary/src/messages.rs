@@ -3,7 +3,7 @@ use crate::batch_maker::Transaction;
 use crate::error::{DagError, DagResult};
 use crate::primary::Round;
 use config::{Committee, WorkerId};
-use crypto::{combine_key_from_ids, BlsSignatureService, Digest, Hash, PublicKey, Signature, SignatureService};
+use crypto::{combine_key_from_ids, remove_pubkeys, BlsSignatureService, Digest, Hash, PublicKey, Signature, SignatureService};
 use blsttc::{PublicKeyShareG2,SignatureShareG1};
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
@@ -407,7 +407,7 @@ impl Certificate {
             .collect()
     }
 
-    pub fn verify(&self, committee: &Committee,sorted_keys: &Vec<PublicKeyShareG2>) -> DagResult<()> {
+    pub fn verify(&self, committee: &Committee,sorted_keys: &Vec<PublicKeyShareG2>, combined_pubkey: &PublicKeyShareG2) -> DagResult<()> {
         // Genesis certificates are always valid.
         if Self::genesis(committee).contains(self) {
             return Ok(());
@@ -441,7 +441,7 @@ impl Certificate {
             }
         }
         // let pks: Vec<PublicKeyShareG2> = ids.iter().map(|i| sorted_keys[*i]).collect();
-        let agg_pk = combine_key_from_ids(ids,&sorted_keys);
+        let agg_pk = remove_pubkeys(&combined_pubkey, ids, &sorted_keys);
 
         SignatureShareG1::verify_batch(&self.digest().0, &agg_pk,&self.votes.1).map_err(DagError::from)
         

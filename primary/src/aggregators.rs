@@ -2,7 +2,7 @@
 use crate::error::{DagError, DagResult};
 use crate::messages::{Certificate, Header, Timeout, TimeoutCert, Vote, NoVoteMsg, NoVoteCert};
 use config::{Committee, Stake};
-use crypto::{aggregate_sign, combine_key_from_ids, PublicKey, Signature, Digest, Hash};
+use crypto::{aggregate_sign, combine_key_from_ids, remove_pubkeys, Digest, Hash, PublicKey, Signature};
 use blsttc::{PublicKeyShareG2,SignatureShareG1};
 use log::info;
 use std::collections::HashSet;
@@ -25,7 +25,7 @@ impl VotesAggregator {
             votes: Vec::new(),
             used: HashSet::new(),
             agg_sign: SignatureShareG1::default(),
-            pk_bit_vec: vec![0; (total_nodes + 127) / 128],
+            pk_bit_vec: vec![u128::MAX; (total_nodes + 127) / 128],
             sorted_keys,
         }
     }
@@ -35,6 +35,7 @@ impl VotesAggregator {
         vote: Vote,
         committee: &Committee,
         header: &Header,
+        combined_key: &PublicKeyShareG2,
     ) -> DagResult<Option<Certificate>> {
         let author = vote.author;
         let author_bls = committee.get_bls_public_g2(&author);
@@ -54,7 +55,7 @@ impl VotesAggregator {
         let chunk = id / 128;
         let bit = id % 128;
         //adding it to bitvec
-        self.pk_bit_vec[chunk] |= 1 << bit;   
+        self.pk_bit_vec[chunk] &= !(1 << bit); 
     
         if self.votes.len() == 1 {
             self.agg_sign = vote.signature;
@@ -73,19 +74,19 @@ impl VotesAggregator {
         if self.weight >= committee.quorum_threshold() {
             self.weight = 0; // Ensures quorum is only reached once.
 
-            // let mut ids = Vec::new();
-            //     for idx in 0..committee.size() {
-            //         let x = idx / 128;
-            //         let chunk = self.pk_bit_vec[x];
-            //         let ridx = idx - x * 128;
-            //         if chunk & 1 << ridx != 0 {
-            //             ids.push(idx);
-            //         }
-            //     }
+            let mut ids = Vec::new();
+            for idx in 0..committee.size() {
+                let x = idx / 128;
+                let chunk = self.pk_bit_vec[x];
+                let ridx = idx - x * 128;
+                if chunk & 1 << ridx != 0 {
+                    ids.push(idx);
+                }
+            }
 
-            // let agg_pk = combine_key_from_ids(ids, &self.sorted_keys);
-            // // for checking aggregated sign
-            // SignatureShareG1::verify_batch(&vote.digest().0, &agg_pk, &self.agg_sign).unwrap();
+            let agg_pk = remove_pubkeys(combined_key, ids, &self.sorted_keys);
+            // for checking aggregated sign
+            SignatureShareG1::verify_batch(&vote.digest().0, &agg_pk, &self.agg_sign).unwrap();
             
             return Ok(Some(Certificate {
                 header_id: header.digest(),
