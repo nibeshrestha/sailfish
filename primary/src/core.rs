@@ -319,23 +319,23 @@ impl Core {
             let vote = Vote::new(header, &self.name, &mut self.bls_signature_service).await;
             // debug!("Created {:?}", vote);
 
-            self.process_vote(vote.clone())
-                .await
-                .expect("Failed to process our own vote");
-
             let addresses = self
                 .committee
                 .others_primaries(&self.name)
                 .iter()
                 .map(|(_, x)| x.primary_to_primary)
                 .collect();
-            let bytes = bincode::serialize(&PrimaryMessage::Vote(vote))
+            let bytes = bincode::serialize(&PrimaryMessage::Vote(vote.clone()))
                 .expect("Failed to serialize our own vote");
             let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
             self.cancel_handlers
                 .entry(header.round)
                 .or_insert_with(Vec::new)
                 .extend(handlers);
+
+            self.process_vote(vote)
+                .await
+                .expect("Failed to process our own vote");
         }
         Ok(())
     }
