@@ -2,9 +2,12 @@ use crate::batch_maker::Transaction;
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::primary::Round;
+use blsttc::{PublicKeyShareG2, SignatureShareG1};
 use config::{Committee, WorkerId};
-use crypto::{combine_key_from_ids, remove_pubkeys, BlsSignatureService, Digest, Hash, PublicKey, Signature, SignatureService};
-use blsttc::{PublicKeyShareG2,SignatureShareG1};
+use crypto::{
+    combine_key_from_ids, remove_pubkeys, BlsSignatureService, Digest, Hash, PublicKey, Signature,
+    SignatureService,
+};
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use serde::{Deserialize, Serialize};
@@ -67,7 +70,6 @@ impl Header {
             .map_err(DagError::from)
 
         // Check if pointer to prev leader exists
-        
     }
 }
 
@@ -88,13 +90,7 @@ impl Hash for Header {
 
 impl fmt::Debug for Header {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{}: B{}({})",
-            self.id,
-            self.round,
-            self.author,
-        )
+        write!(f, "{}: B{}({})", self.id, self.round, self.author,)
     }
 }
 
@@ -154,12 +150,7 @@ impl Hash for Timeout {
 
 impl fmt::Debug for Timeout {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Timeout: R{}({})",
-            self.round,
-            self.author,
-        )
+        write!(f, "Timeout: R{}({})", self.round, self.author,)
     }
 }
 
@@ -188,10 +179,7 @@ impl NoVoteMsg {
             signature: Signature::default(),
         };
         let signature = signature_service.request_signature(msg.digest()).await;
-        Self {
-            signature,
-            ..msg
-        }
+        Self { signature, ..msg }
     }
 
     pub fn verify(&self, committee: &Committee) -> DagResult<()> {
@@ -219,12 +207,7 @@ impl Hash for NoVoteMsg {
 
 impl fmt::Debug for NoVoteMsg {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "NoVoteMsg: R{}({})",
-            self.round,
-            self.author,
-        )
+        write!(f, "NoVoteMsg: R{}({})", self.round, self.author,)
     }
 }
 
@@ -307,7 +290,7 @@ impl TimeoutCert {
         }
     }
 
-    // Adds a timeout to the certificate. 
+    // Adds a timeout to the certificate.
     pub fn add_timeout(&mut self, author: PublicKey, signature: Signature) -> DagResult<()> {
         // Ensure this public key hasn't already submitted a timeout for this round
         if self.timeouts.iter().any(|(pk, _)| *pk == author) {
@@ -390,7 +373,7 @@ impl NoVoteCert {
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Certificate {
     pub header_id: Digest,
-    pub round : Round,
+    pub round: Round,
     pub origin: PublicKey,
     pub parents: BTreeSet<Digest>,
     pub votes: (Vec<u128>, SignatureShareG1),
@@ -401,13 +384,16 @@ impl Certificate {
         committee
             .authorities
             .keys()
-            .map(|name| Self {
-                ..Self::default()
-            })
+            .map(|name| Self { ..Self::default() })
             .collect()
     }
 
-    pub fn verify(&self, committee: &Committee,sorted_keys: &Vec<PublicKeyShareG2>, combined_pubkey: &PublicKeyShareG2) -> DagResult<()> {
+    pub fn verify(
+        &self,
+        committee: &Committee,
+        sorted_keys: &Vec<PublicKeyShareG2>,
+        combined_pubkey: &PublicKeyShareG2,
+    ) -> DagResult<()> {
         // Genesis certificates are always valid.
         if Self::genesis(committee).contains(self) {
             return Ok(());
@@ -443,8 +429,8 @@ impl Certificate {
         // let pks: Vec<PublicKeyShareG2> = ids.iter().map(|i| sorted_keys[*i]).collect();
         let agg_pk = remove_pubkeys(&combined_pubkey, ids, &sorted_keys);
 
-        SignatureShareG1::verify_batch(&self.digest().0, &agg_pk,&self.votes.1).map_err(DagError::from)
-        
+        SignatureShareG1::verify_batch(&self.digest().0, &agg_pk, &self.votes.1)
+            .map_err(DagError::from)
     }
 
     pub fn round(&self) -> Round {

@@ -2,10 +2,10 @@ use bytes::Bytes;
 use crypto::Digest;
 use crypto::PublicKey;
 use ed25519_dalek::{Digest as _, Sha512};
+use std::convert::TryInto as _;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 use tokio::time::{sleep, Duration, Instant};
-use std::convert::TryInto as _;
 
 pub type Transaction = Vec<u8>;
 pub type Batch = Vec<Transaction>;
@@ -30,7 +30,7 @@ impl BatchMaker {
         batch_size: usize,
         max_batch_delay: u64,
         rx_transaction: Receiver<Transaction>,
-        tx_txns:  Sender<Vec<Transaction>>,
+        tx_txns: Sender<Vec<Transaction>>,
     ) {
         tokio::spawn(async move {
             Self {

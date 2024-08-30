@@ -1,15 +1,17 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::aggregators::{CertificatesAggregator, NoVoteAggregator, TimeoutAggregator, VotesAggregator};
+use crate::aggregators::{
+    CertificatesAggregator, NoVoteAggregator, TimeoutAggregator, VotesAggregator,
+};
 use crate::error::{DagError, DagResult};
 use crate::messages::{Certificate, Header, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, Vote};
 use crate::primary::{PrimaryMessage, Round};
 use crate::synchronizer::Synchronizer;
 use async_recursion::async_recursion;
+use blsttc::PublicKeyShareG2;
 use bytes::Bytes;
 use config::Committee;
 use crypto::{BlsSignatureService, Hash as _};
 use crypto::{Digest, PublicKey, SignatureService};
-use blsttc::PublicKeyShareG2;
 use log::{debug, error, info, warn};
 use network::{CancelHandler, ReliableSender};
 use std::collections::{HashMap, HashSet};
@@ -29,7 +31,7 @@ pub struct Core {
     /// The committee information.
     committee: Committee,
     sorted_keys: Arc<Vec<PublicKeyShareG2>>,
-    combined_pubkey : PublicKeyShareG2,
+    combined_pubkey: PublicKeyShareG2,
     /// The persistent storage.
     store: Store,
     /// Handles synchronization with other nodes and our workers.
@@ -96,7 +98,7 @@ impl Core {
         name_bls: PublicKeyShareG2,
         committee: Committee,
         sorted_keys: Arc<Vec<PublicKeyShareG2>>,
-        combined_pubkey : PublicKeyShareG2,
+        combined_pubkey: PublicKeyShareG2,
         store: Store,
         synchronizer: Synchronizer,
         signature_service: SignatureService,
@@ -187,9 +189,7 @@ impl Core {
             .expect("Failed to serialize own no vote message");
 
         // Send No Vote Msg to the leader of the round
-        let leader_pub_key = self
-            .committee
-            .leader((no_vote_msg.round + 1) as usize);
+        let leader_pub_key = self.committee.leader((no_vote_msg.round + 1) as usize);
 
         let address = self
             .committee
@@ -204,7 +204,10 @@ impl Core {
             .push(handler);
 
         // Log the broadcast for debugging purposes.
-        debug!("Broadcasted own no vote message for round {}", no_vote_msg.round);
+        debug!(
+            "Broadcasted own no vote message for round {}",
+            no_vote_msg.round
+        );
 
         Ok(())
     }
@@ -242,7 +245,8 @@ impl Core {
     async fn process_header(&mut self, header: &Header) -> DagResult<()> {
         debug!("Processing {:?}", header);
         // Send header to consensus
-        self.tx_consensus_header.send(header.clone())
+        self.tx_consensus_header
+            .send(header.clone())
             .await
             .expect("Failed to send header to consensus");
         // Indicate that we are processing this header.
@@ -254,7 +258,7 @@ impl Core {
         // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
         // reschedule processing of this header.
 
-        if header.round != 1  {
+        if header.round != 1 {
             let parents = self.synchronizer.get_parents(header).await?;
             if parents.is_empty() {
                 debug!("Processing of {} suspended: missing parent(s)", header.id);
@@ -270,8 +274,12 @@ impl Core {
                     DagError::MalformedHeader(header.id.clone())
                 );
                 stake += self.committee.stake(&x.origin());
-                
-                has_leader = has_leader || self.committee.leader((header.round - 1) as usize).eq(&x.origin);
+
+                has_leader = has_leader
+                    || self
+                        .committee
+                        .leader((header.round - 1) as usize)
+                        .eq(&x.origin);
             }
             ensure!(
                 stake >= self.committee.quorum_threshold(),
@@ -280,14 +288,16 @@ impl Core {
 
             if !has_leader {
                 header.timeout_cert.verify(&self.committee)?;
-                if self.committee.leader(header.round as usize).eq(&header.author) {
+                if self
+                    .committee
+                    .leader(header.round as usize)
+                    .eq(&header.author)
+                {
                     header.no_vote_cert.verify(&self.committee)?;
                 }
             }
         }
-        
 
-        
         //NO NEED TO CHECK FOR MISSING PAYLOAD BECAUSE HEADER ITSELF CONTAINS TRANSACTIONS.
 
         // // Ensure we have the payload. If we don't, the synchronizer will ask our workers to get it, and then
@@ -311,25 +321,24 @@ impl Core {
             // Make a vote and send it to all nodes
             let vote = Vote::new(header, &self.name, &mut self.bls_signature_service).await;
             // debug!("Created {:?}", vote);
-        
-            self.process_vote(vote.clone())
-                .await
-                .expect("Failed to process our own vote");
-        
+
             let addresses = self
                 .committee
                 .others_primaries(&self.name)
                 .iter()
                 .map(|(_, x)| x.primary_to_primary)
                 .collect();
-            let bytes = bincode::serialize(&PrimaryMessage::Vote(vote))
+            let bytes = bincode::serialize(&PrimaryMessage::Vote(vote.clone()))
                 .expect("Failed to serialize our own vote");
             let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
             self.cancel_handlers
                 .entry(header.round)
                 .or_insert_with(Vec::new)
                 .extend(handlers);
-            
+
+            self.process_vote(vote)
+                .await
+                .expect("Failed to process our own vote");
         }
         Ok(())
     }
@@ -364,15 +373,17 @@ impl Core {
             let initial_no_vote_msg = NoVoteMsg::new(
                 no_vote_msg.round,
                 self.name.clone(),
-                &mut self.signature_service
-            ).await;
+                &mut self.signature_service,
+            )
+            .await;
 
             let mut aggregator = NoVoteAggregator::new();
             // Add the initial message to the new aggregator
             aggregator.append(initial_no_vote_msg, &self.committee)?;
 
             // Insert the new aggregator into the map
-            self.no_vote_aggregators.insert(no_vote_msg.round, Box::new(aggregator));
+            self.no_vote_aggregators
+                .insert(no_vote_msg.round, Box::new(aggregator));
         }
 
         // Check if we have no vote messages to create a no vote cert to propose next header(as a leader).
@@ -403,8 +414,7 @@ impl Core {
         ) {
             // Add it to the votes' aggregator and try to make a new certificate.
             if let Some(certificate) =
-            vote_aggregator
-                .append(vote, &self.committee, header, &self.combined_pubkey)?
+                vote_aggregator.append(vote, &self.committee, header, &self.combined_pubkey)?
             {
                 debug!("Assembled {:?}", certificate);
 
@@ -539,9 +549,7 @@ impl Core {
 
             // Ensure we receive a vote on the expected header.
             ensure!(
-                vote.id == header.id
-                    && vote.origin == header.author
-                    && vote.round == header.round,
+                vote.id == header.id && vote.origin == header.author && vote.round == header.round,
                 DagError::UnexpectedVote(vote.id.clone())
             );
         }
@@ -557,7 +565,9 @@ impl Core {
         );
 
         // Verify the certificate (and the embedded header).
-        certificate.verify(&self.committee,&self.sorted_keys, &self.combined_pubkey).map_err(DagError::from)
+        certificate
+            .verify(&self.committee, &self.sorted_keys, &self.combined_pubkey)
+            .map_err(DagError::from)
         // Ok(())
     }
 

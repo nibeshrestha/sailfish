@@ -5,8 +5,8 @@ use config::BlsKeyPair;
 use config::Export as _;
 use config::Import as _;
 use config::{Committee, KeyPair, Parameters, WorkerId};
-use crypto::combine_keys;
 use consensus::Consensus;
+use crypto::combine_keys;
 use env_logger::Env;
 use log::info;
 use primary::{Certificate, Primary};
@@ -111,7 +111,6 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
     sorted_keys.sort();
 
     let combined_pubkey = combine_keys(&sorted_keys);
-
 
     info!("{}", sorted_keys.len());
 

@@ -10,9 +10,9 @@ use log::info;
 use log::{debug, warn};
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration, Instant};
-use std::convert::TryInto;
 
 #[cfg(test)]
 #[path = "tests/proposer_tests.rs"]
@@ -104,8 +104,8 @@ impl Proposer {
                 last_leader: None,
                 txns: Vec::new(),
                 payload_size: 0,
-                last_timeout_cert: TimeoutCert:: new(0),
-                last_no_vote_cert: NoVoteCert:: new(0),
+                last_timeout_cert: TimeoutCert::new(0),
+                last_no_vote_cert: NoVoteCert::new(0),
             }
             .run()
             .await;
@@ -113,11 +113,8 @@ impl Proposer {
     }
 
     async fn make_timeout_msg(&mut self) {
-        let timeout_cert_msg = Timeout::new(
-            self.round,
-            self.name,
-            &mut self.signature_service,
-        ).await;
+        let timeout_cert_msg =
+            Timeout::new(self.round, self.name, &mut self.signature_service).await;
 
         debug!("Created {:?}", timeout_cert_msg);
 
@@ -129,11 +126,7 @@ impl Proposer {
     }
 
     async fn make_no_vote_msg(&mut self) {
-        let no_vote_msg = NoVoteMsg::new(
-            self.round,
-            self.name,
-            &mut self.signature_service,
-        ).await;
+        let no_vote_msg = NoVoteMsg::new(self.round, self.name, &mut self.signature_service).await;
 
         debug!("Created {:?}", no_vote_msg);
 
@@ -153,16 +146,18 @@ impl Proposer {
             TimeoutCert::new(0) // Assuming TimeoutCert::new creates an empty certificate
         };
 
-        let no_vote_cert = if self.committee.leader((self.round) as usize) == self.name && self.last_no_vote_cert.round == self.round - 1 {
+        let no_vote_cert = if self.committee.leader((self.round) as usize) == self.name
+            && self.last_no_vote_cert.round == self.round - 1
+        {
             self.last_no_vote_cert.clone()
         } else {
             NoVoteCert::new(0) // Assuming NoVoteCert::new creates an empty certificate
         };
 
-        let limit = if self.txns.len()*self.tx_size <= self.header_size {
+        let limit = if self.txns.len() * self.tx_size <= self.header_size {
             self.txns.len()
-        }else {
-            self.header_size/self.tx_size
+        } else {
+            self.header_size / self.tx_size
         };
 
         let header = Header::new(
@@ -179,10 +174,14 @@ impl Proposer {
         // debug!("Created {:?}", header.id);
 
         #[cfg(feature = "benchmark")]
-        {   
+        {
             info!("Created {:?}", header.id);
-            info!("Header {:?} contains {} B", header.id, header.payload.len()*self.tx_size);
-            
+            info!(
+                "Header {:?} contains {} B",
+                header.id,
+                header.payload.len() * self.tx_size
+            );
+
             let tx_ids: Vec<_> = header
                 .payload
                 .clone()
@@ -199,7 +198,7 @@ impl Proposer {
             }
             // NOTE: This log entry is used to compute performance.
         }
-        
+
         // Send the new header to the `Core` that will broadcast and process it.
         self.tx_core
             .send(header)
@@ -246,14 +245,18 @@ impl Proposer {
             let timer_expired = timer.is_elapsed();
 
             // TODO: This has to be fixed by sending timeout only once.
-            if timer_expired && !timeout_sent  {
+            if timer_expired && !timeout_sent {
                 warn!("Timer expired for round {}", self.round);
                 self.make_timeout_msg().await;
                 timeout_sent = true;
             }
 
-            if ((timer_expired && timeout_cert_gathered && (!is_next_leader || no_vote_cert_gathered)) || (enough_digests && advance)) && enough_parents {
-                
+            if ((timer_expired
+                && timeout_cert_gathered
+                && (!is_next_leader || no_vote_cert_gathered))
+                || (enough_digests && advance))
+                && enough_parents
+            {
                 if timer_expired && self.last_leader.is_none() && !is_next_leader {
                     self.make_no_vote_msg().await;
                 }
