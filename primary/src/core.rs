@@ -29,9 +29,9 @@ pub struct Core {
     name: PublicKey,
     name_bls: PublicKeyShareG2,
     /// The committee information.
-    committee: Committee,
+    committee: Arc<Committee>,
     sorted_keys: Arc<Vec<PublicKeyShareG2>>,
-    combined_pubkey: PublicKeyShareG2,
+    combined_pubkey: Arc<PublicKeyShareG2>,
     /// The persistent storage.
     store: Store,
     /// Handles synchronization with other nodes and our workers.
@@ -44,6 +44,7 @@ pub struct Core {
     /// The depth of the garbage collector.
     gc_depth: Round,
 
+    tx_primary: Sender<PrimaryMessage>,
     /// Receiver for dag messages (headers, timeouts, votes, certificates).
     rx_primaries: Receiver<PrimaryMessage>,
     /// Receives loopback headers from the `HeaderWaiter`.
@@ -97,15 +98,16 @@ impl Core {
     pub fn spawn(
         name: PublicKey,
         name_bls: PublicKeyShareG2,
-        committee: Committee,
+        committee: Arc<Committee>,
         sorted_keys: Arc<Vec<PublicKeyShareG2>>,
-        combined_pubkey: PublicKeyShareG2,
+        combined_pubkey: Arc<PublicKeyShareG2>,
         store: Store,
         synchronizer: Synchronizer,
         signature_service: SignatureService,
         bls_signature_service: BlsSignatureService,
         consensus_round: Arc<AtomicU64>,
         gc_depth: Round,
+        tx_primary: Sender<PrimaryMessage>,
         rx_primaries: Receiver<PrimaryMessage>,
         rx_header_waiter: Receiver<Header>,
         rx_certificate_waiter: Receiver<Certificate>,
@@ -131,6 +133,7 @@ impl Core {
                 bls_signature_service,
                 consensus_round,
                 gc_depth,
+                tx_primary,
                 rx_primaries,
                 rx_header_waiter,
                 rx_certificate_waiter,
@@ -214,7 +217,11 @@ impl Core {
         Ok(())
     }
 
-    async fn process_own_header(&mut self, header: Header) -> DagResult<()> {
+    async fn process_own_header(
+        &mut self,
+        header: Header,
+        tx_primary: &Arc<Sender<PrimaryMessage>>,
+    ) -> DagResult<()> {
         // Reset the votes aggregator.
         let sorted_keys = Arc::clone(&self.sorted_keys);
         self.processing_headers
@@ -240,11 +247,15 @@ impl Core {
             .extend(handlers);
 
         // Process the header.
-        self.process_header(&header).await
+        self.process_header(&header, tx_primary).await
     }
 
     #[async_recursion]
-    async fn process_header(&mut self, header: &Header) -> DagResult<()> {
+    async fn process_header(
+        &mut self,
+        header: &Header,
+        tx_primary: &Arc<Sender<PrimaryMessage>>,
+    ) -> DagResult<()> {
         debug!("Processing {:?}", header);
 
         self.tx_consensus_header
@@ -331,7 +342,7 @@ impl Core {
             // Make a vote and send it to all nodes
             let vote = Vote::new(header, &self.name, &mut self.bls_signature_service).await;
             // debug!("Created {:?}", vote);
-            self.process_vote(vote.clone())
+            self.process_vote(vote.clone(), &tx_primary)
                 .await
                 .expect("Failed to process our own vote");
 
@@ -414,7 +425,11 @@ impl Core {
     }
 
     #[async_recursion]
-    async fn process_vote(&mut self, vote: Vote) -> DagResult<()> {
+    async fn process_vote(
+        &mut self,
+        vote: Vote,
+        tx_primary: &Arc<Sender<PrimaryMessage>>,
+    ) -> DagResult<()> {
         debug!("Processing {:?}", vote);
 
         if !self.processing_vote_aggregators.contains_key(&vote.id) {
@@ -427,15 +442,14 @@ impl Core {
         }
 
         // Add it to the votes' aggregator and try to make a new certificate.
-        if let (Some(header), Some(vote_aggregator)) = (
-            self.processing_headers.get(&vote.id),
-            self.processing_vote_aggregators.get_mut(&vote.id),
-        ) {
+        if let Some(vote_aggregator) = self.processing_vote_aggregators.get_mut(&vote.id) {
             // Add it to the votes' aggregator and try to make a new certificate.
             if let Some(certificate) =
-                vote_aggregator.append(vote, &self.committee, header, &self.combined_pubkey)?
+                vote_aggregator.append(vote, &self.committee, &self.combined_pubkey)?
             {
                 debug!("Assembled {:?}", certificate);
+
+                self.processed_headers.insert(certificate.header_id.clone());
 
                 // Broadcast the certificate.
                 let addresses = self
@@ -452,10 +466,28 @@ impl Core {
                     .or_insert_with(Vec::new)
                     .extend(handlers);
 
-                // Process the new certificate.
-                self.process_certificate(certificate)
-                    .await
-                    .expect("Failed to process valid certificate");
+                let committee = Arc::clone(&self.committee);
+                let sorted_keys = Arc::clone(&self.sorted_keys);
+                let tx_primary = tx_primary.clone();
+                let combined_key = Arc::clone(&self.combined_pubkey);
+
+                tokio::task::spawn_blocking(move || {
+                    certificate
+                        .verify(&committee, &sorted_keys, &combined_key)
+                        .map_err(DagError::from)
+                        .unwrap();
+                    info!(
+                        "Certificate verified for header {:?}",
+                        certificate.header_id
+                    );
+                    let _ =
+                        tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
+                });
+
+                // // Process the new certificate.
+                // self.process_certificate(certificate)
+                //     .await
+                //     .expect("Failed to process valid certificate");
             }
         }
 
@@ -578,7 +610,11 @@ impl Core {
         // vote.verify(&self.committee).map_err(DagError::from)
     }
 
-    fn sanitize_certificate(&mut self, certificate: &Certificate) -> DagResult<()> {
+    fn sanitize_certificate(
+        &mut self,
+        certificate: Certificate,
+        tx_primary: &Arc<Sender<PrimaryMessage>>,
+    ) -> DagResult<()> {
         ensure!(
             self.gc_round <= certificate.round(),
             DagError::TooOld(certificate.digest(), certificate.round())
@@ -586,9 +622,25 @@ impl Core {
         if !self.processed_headers.contains(&certificate.header_id) {
             // Verify the certificate (and the embedded header).
             self.processed_headers.insert(certificate.header_id.clone());
-            certificate
-                .verify(&self.committee, &self.sorted_keys, &self.combined_pubkey)
-                .map_err(DagError::from)
+
+            let committee = Arc::clone(&self.committee);
+            let sorted_keys = Arc::clone(&self.sorted_keys);
+            let tx_primary = tx_primary.clone();
+            let combined_key = Arc::clone(&self.combined_pubkey);
+
+            tokio::task::spawn_blocking(move || {
+                certificate
+                    .verify(&committee, &sorted_keys, &combined_key)
+                    .map_err(DagError::from)
+                    .unwrap();
+                info!(
+                    "Certificate verified for header {:?}",
+                    certificate.header_id
+                );
+                let _ = tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
+            });
+
+            Ok(())
         } else {
             Ok(())
         }
@@ -599,13 +651,17 @@ impl Core {
     // Main loop listening to incoming messages.
     pub async fn run(&mut self) {
         loop {
+            let tx_primary = Arc::new(self.tx_primary.clone());
+            let sender_channel = tx_primary.clone();
+
             let result = tokio::select! {
+
                 // We receive here messages from other primaries.
                 Some(message) = self.rx_primaries.recv() => {
                     match message {
                         PrimaryMessage::Header(header) => {
                             match self.sanitize_header(&header) {
-                                Ok(()) => self.process_header(&header).await,
+                                Ok(()) => self.process_header(&header ,&sender_channel).await,
                                 error => error
                             }
 
@@ -626,15 +682,16 @@ impl Core {
                         },
                         PrimaryMessage::Vote(vote) => {
                             match self.sanitize_vote(&vote) {
-                                Ok(()) => self.process_vote(vote).await,
+                                Ok(()) => self.process_vote(vote, &sender_channel).await,
                                 error => error
                             }
                         },
                         PrimaryMessage::Certificate(certificate) => {
-                            match self.sanitize_certificate(&certificate) {
-                                Ok(()) =>  self.process_certificate(certificate).await,
-                                error => error
-                            }
+                            let res = self.sanitize_certificate(certificate, &sender_channel);
+                            res
+                        },
+                        PrimaryMessage::VerifiedCertificate(certificate) => {
+                                self.process_certificate(certificate).await
                         },
                         _ => panic!("Unexpected core message")
                     }
@@ -642,7 +699,7 @@ impl Core {
 
                 // We receive here loopback headers from the `HeaderWaiter`. Those are headers for which we interrupted
                 // execution (we were missing some of their dependencies) and we are now ready to resume processing.
-                Some(header) = self.rx_header_waiter.recv() => self.process_header(&header).await,
+                Some(header) = self.rx_header_waiter.recv() => self.process_header(&header, &sender_channel).await,
 
                 // We receive here loopback certificates from the `CertificateWaiter`. Those are certificates for which
                 // we interrupted execution (we were missing some of their ancestors) and we are now ready to resume
@@ -650,7 +707,7 @@ impl Core {
                 Some(certificate) = self.rx_certificate_waiter.recv() => self.process_certificate(certificate).await,
 
                 // We also receive here our new headers created by the `Proposer`.
-                Some(header) = self.rx_proposer.recv() => self.process_own_header(header).await,
+                Some(header) = self.rx_proposer.recv() => self.process_own_header(header ,&sender_channel).await,
                 // We also receive here our timeout created by the `Proposer`.
                 Some(timeout) = self.rx_timeout.recv() => self.process_own_timeout(timeout).await,
                 // We also receive here our no vote messages created by the `Proposer`.

@@ -2,10 +2,13 @@
 use config::{Committee, Stake};
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
+use futures::executor::block_on;
 use log::{debug, info, log_enabled, warn};
 use primary::{Certificate, Header, Round};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
+use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 #[cfg(test)]
@@ -67,7 +70,7 @@ pub struct Consensus {
     committee: Committee,
     /// The depth of the garbage collector.
     gc_depth: Round,
-
+    store: Store,
     /// Receives new certificates from the primary. The primary should send us new certificates only
     /// if it already sent us its whole history.
     rx_primary: Receiver<Certificate>,
@@ -88,6 +91,7 @@ impl Consensus {
     pub fn spawn(
         committee: Committee,
         gc_depth: Round,
+        store: Store,
         rx_primary: Receiver<Certificate>,
         rx_primary_header: Receiver<Header>,
         tx_primary: Sender<Certificate>,
@@ -97,6 +101,7 @@ impl Consensus {
             Self {
                 committee: committee.clone(),
                 gc_depth,
+                store,
                 rx_primary,
                 rx_primary_header,
                 tx_primary,
@@ -112,7 +117,6 @@ impl Consensus {
     async fn run(&mut self) {
         // The consensus state (everything else is immutable).
         let mut state = State::new(self.genesis.clone());
-
         // Listen to incoming certificates and header quorums.
         loop {
             tokio::select! {
@@ -190,10 +194,12 @@ impl Consensus {
                 }
                 // Listen to incoming certificates.
                 Some(certificate) = self.rx_primary.recv() => {
+                    info!("reached here 0");
                     debug!("Processing {:?}", certificate);
                     let round = certificate.round();
 
                     // Add the new certificate to the local storage.
+                    info!("reached here 0.1");
                     state
                         .dag
                         .entry(round)
@@ -205,21 +211,31 @@ impl Consensus {
 
                     // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
                     let leader_round = r;
+                    info!("reached here 1");
+                    info!("{} {}", leader_round, state.last_committed_round);
                     if leader_round <= state.last_committed_round {
                         continue;
                     }
+
+                    info!("reached here 1.1");
                     let (leader_digest, leader) = match self.leader(leader_round, &state.dag) {
                         Some(x) => x,
                         None => continue,
                     };
 
                     // Check if the leader has f+1 support from its children (ie. round r-1).
+
                     let stake: Stake = state
                         .dag
                         .get(&round)
                         .expect("We should have the whole history by now")
                         .values()
-                        .filter(|(_, x)| x.parents.contains(leader_digest))
+                        .filter(|(_, x)| {
+                            let key = x.header_id.to_vec();
+                            let mut store = self.store.clone();
+                            let res = block_on(store.read(key)).unwrap().unwrap();
+                            let header = Header::from(bincode::deserialize(&res).unwrap());
+                            header.parents.contains(leader_digest)})
                         .map(|(_, x)| self.committee.stake(&x.origin()))
                         .sum();
 
@@ -231,6 +247,7 @@ impl Consensus {
                         continue;
                     }
 
+                    info!("reached here 2 ");
                     // Get an ordered list of past leaders that are linked to the current leader.
                     debug!("Leader {:?} has enough support", leader);
                     let mut sequence = Vec::new();
@@ -252,6 +269,7 @@ impl Consensus {
                         }
                     }
 
+                    info!("reached here 3");
                     // Output the sequence in the right order.
                     for certificate in sequence {
 
@@ -320,12 +338,21 @@ impl Consensus {
     /// Checks if there is a path between two leaders.
     fn linked(&self, leader: &Certificate, prev_leader: &Certificate, dag: &Dag) -> bool {
         let mut parents = vec![leader];
+
         for r in (prev_leader.round()..leader.round()).rev() {
             parents = dag
                 .get(&(r))
                 .expect("We should have the whole history by now")
                 .values()
-                .filter(|(digest, _)| parents.iter().any(|x| x.parents.contains(digest)))
+                .filter(|(digest, _)| {
+                    parents.iter().any(|x| {
+                        let key = x.header_id.to_vec();
+                        let mut store = self.store.clone();
+                        let res = block_on(store.read(key)).unwrap().unwrap();
+                        let header = Header::from(bincode::deserialize(&res).unwrap());
+                        header.parents.contains(digest)
+                    })
+                })
                 .map(|(_, certificate)| certificate)
                 .collect();
         }
@@ -343,7 +370,13 @@ impl Consensus {
         while let Some(x) = buffer.pop() {
             debug!("Sequencing {:?}", x);
             ordered.push(x.clone());
-            for parent in &x.parents {
+
+            let key = x.header_id.to_vec();
+            let mut store = self.store.clone();
+            let res = block_on(store.read(key)).unwrap().unwrap();
+            let header = Header::from(bincode::deserialize(&res).unwrap());
+
+            for parent in &header.parents {
                 let (digest, certificate) = match state
                     .dag
                     .get(&(x.round() - 1))

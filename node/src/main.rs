@@ -10,6 +10,7 @@ use crypto::combine_keys;
 use env_logger::Env;
 use log::info;
 use primary::{Certificate, Primary};
+use std::sync::{Arc, Mutex};
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver};
 
@@ -142,7 +143,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
                 sorted_keys,
                 combined_pubkey,
                 parameters.clone(),
-                store,
+                store.clone(),
                 /* tx_consensus */ tx_new_certificates,
                 /* rx_consensus */ rx_feedback,
                 tx_consensus_header,
@@ -150,6 +151,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
             Consensus::spawn(
                 committee,
                 parameters.gc_depth,
+                store,
                 /* rx_primary */ rx_new_certificates,
                 rx_consensus_header,
                 /* tx_primary */ tx_feedback,

@@ -375,7 +375,6 @@ pub struct Certificate {
     pub header_id: Digest,
     pub round: Round,
     pub origin: PublicKey,
-    pub parents: BTreeSet<Digest>,
     pub votes: (Vec<u128>, SignatureShareG1),
 }
 

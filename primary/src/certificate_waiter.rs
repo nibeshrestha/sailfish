@@ -1,6 +1,6 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
-use crate::messages::Certificate;
+use crate::messages::{Certificate, Header};
 use futures::future::try_join_all;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
@@ -61,14 +61,20 @@ impl CertificateWaiter {
                 Some(certificate) = self.rx_synchronizer.recv() => {
                     // Add the certificate to the waiter pool. The waiter will return it to us
                     // when all its parents are in the store.
-                    let wait_for = certificate
-                        .parents
+                    let key = certificate.header_id.to_vec();
+
+                    if let Some(res) = self.store.read(key).await.unwrap() {
+                        let header = Header::from(bincode::deserialize(&res).unwrap());
+                        let wait_for = header.parents
                         .iter()
                         .cloned()
                         .map(|x| (x.to_vec(), self.store.clone()))
                         .collect();
-                    let fut = Self::waiter(wait_for, certificate);
-                    waiting.push(fut);
+
+                        let fut = Self::waiter(wait_for, certificate);
+                        waiting.push(fut);
+                    }
+
                 }
                 Some(result) = waiting.next() => match result {
                     Ok(certificate) => {

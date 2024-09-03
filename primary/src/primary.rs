@@ -77,7 +77,7 @@ impl Primary {
         tx_consensus_header: Sender<Header>,
     ) {
         // let (tx_others_digests, rx_others_digests) = channel(CHANNEL_CAPACITY);
-        let (tx_txns, rx_txns) = channel(CHANNEL_CAPACITY);
+        let (tx_our_digests, rx_our_digests) = channel(CHANNEL_CAPACITY);
         let (tx_parents, rx_parents) = channel(CHANNEL_CAPACITY);
         let (tx_headers, rx_headers) = channel(CHANNEL_CAPACITY);
         let (tx_timeout, rx_timeout) = channel(CHANNEL_CAPACITY);
@@ -114,7 +114,7 @@ impl Primary {
             address,
             /* handler */
             PrimaryReceiverHandler {
-                tx_primary_messages,
+                tx_primary_messages: tx_primary_messages.clone(),
                 tx_cert_requests,
             },
         );
@@ -142,7 +142,13 @@ impl Primary {
         //     name, address
         // );
 
-        Worker::spawn(name, 0, committee.clone(), parameters.clone(), tx_txns);
+        Worker::spawn(
+            name,
+            0,
+            committee.clone(),
+            parameters.clone(),
+            tx_our_digests,
+        );
 
         //The `Synchronizer` provides auxiliary methods helping to `Core` to sync.
         let synchronizer = Synchronizer::new(
@@ -161,15 +167,16 @@ impl Primary {
         Core::spawn(
             name,
             name_bls,
-            committee.clone(),
+            Arc::new(committee.clone()),
             sorted_keys,
-            combined_pubkey,
+            Arc::new(combined_pubkey),
             store.clone(),
             synchronizer,
             signature_service.clone(),
             bls_signature_service,
             consensus_round.clone(),
             parameters.gc_depth,
+            tx_primary_messages,
             /* rx_primaries */ rx_primary_messages,
             /* rx_header_waiter */ rx_headers_loopback,
             /* rx_certificate_waiter */ rx_certificates_loopback,
@@ -223,7 +230,7 @@ impl Primary {
             parameters.tx_size,
             parameters.max_header_delay,
             /* rx_core */ rx_parents,
-            /* rx_workers */ rx_txns,
+            /* rx_workers */ rx_our_digests,
             /* tx_core */ tx_headers,
             /* tx_core_timeout */ tx_timeout,
             rx_timeout_cert,

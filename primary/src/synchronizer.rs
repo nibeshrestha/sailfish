@@ -118,7 +118,11 @@ impl Synchronizer {
     /// Check whether we have all the ancestors of the certificate. If we don't, send the certificate to
     /// the `CertificateWaiter` which will trigger re-processing once we have all the missing data.
     pub async fn deliver_certificate(&mut self, certificate: &Certificate) -> DagResult<bool> {
-        for digest in &certificate.parents {
+        let key = certificate.header_id.to_vec();
+        let res = self.store.read(key).await.unwrap().unwrap();
+        let header = Header::from(bincode::deserialize(&res).unwrap());
+
+        for digest in &header.parents {
             if self.genesis.iter().any(|(x, _)| x == digest) {
                 continue;
             }
