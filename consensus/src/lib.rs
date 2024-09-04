@@ -2,11 +2,10 @@
 use config::{Committee, Stake};
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
-use futures::executor::block_on;
 use log::{debug, info, log_enabled, warn};
 use primary::{Certificate, Header, Round};
 use std::cmp::max;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -17,6 +16,7 @@ pub mod consensus_tests;
 
 /// The representation of the DAG in memory.
 type Dag = HashMap<Round, HashMap<PublicKey, (Digest, Certificate)>>;
+type ParentInfo = HashMap<Digest, BTreeSet<Digest>>;
 
 /// The state that needs to be persisted for crash-recovery.
 struct State {
@@ -28,6 +28,7 @@ struct State {
     /// Keeps the latest committed certificate (and its parents) for every authority. Anything older
     /// must be regularly cleaned up through the function `update`.
     dag: Dag,
+    parent_info: ParentInfo,
 }
 
 impl State {
@@ -41,6 +42,7 @@ impl State {
             last_committed_round: 0,
             last_committed: genesis.iter().map(|(x, (_, y))| (*x, y.round())).collect(),
             dag: [(0, genesis)].iter().cloned().collect(),
+            parent_info: HashMap::new(),
         }
     }
 
@@ -124,6 +126,7 @@ impl Consensus {
                 Some(header) = self.rx_primary_header.recv() => {
                     debug!("Processing {:?}", header);
 
+                    state.parent_info.insert(header.id.clone(), header.parents.clone());
                     // Try to order the dag to commit. Start from the previous round.
                     let r = header.round - 1;
 
@@ -204,7 +207,7 @@ impl Consensus {
                         .dag
                         .entry(round)
                         .or_insert_with(HashMap::new)
-                        .insert(certificate.origin(), (certificate.digest(), certificate));
+                        .insert(certificate.origin(), (certificate.header_id.clone(), certificate));
 
                     // Try to order the dag to commit. Start from the previous round and check if it is a leader round.
                     let r = round - 1;
@@ -230,12 +233,9 @@ impl Consensus {
                         .get(&round)
                         .expect("We should have the whole history by now")
                         .values()
-                        .filter(|(_, x)| {
-                            let key = x.header_id.to_vec();
-                            let mut store = self.store.clone();
-                            let res = block_on(store.read(key)).unwrap().unwrap();
-                            let header = Header::from(bincode::deserialize(&res).unwrap());
-                            header.parents.contains(leader_digest)})
+                        .filter(|(_, x)| { let parents = state.parent_info.get(&x.header_id).unwrap();
+                                parents.contains(leader_digest)
+                            })
                         .map(|(_, x)| self.committee.stake(&x.origin()))
                         .sum();
 
@@ -327,7 +327,7 @@ impl Consensus {
             };
 
             // Check whether there is a path between the last two leaders.
-            if self.linked(leader, prev_leader, &state.dag) {
+            if self.linked(leader, prev_leader, &state) {
                 to_commit.push(prev_leader.clone());
                 leader = prev_leader;
             }
@@ -336,21 +336,17 @@ impl Consensus {
     }
 
     /// Checks if there is a path between two leaders.
-    fn linked(&self, leader: &Certificate, prev_leader: &Certificate, dag: &Dag) -> bool {
+    fn linked(&self, leader: &Certificate, prev_leader: &Certificate, state : &State) -> bool {
         let mut parents = vec![leader];
 
         for r in (prev_leader.round()..leader.round()).rev() {
-            parents = dag
+            parents = state.dag
                 .get(&(r))
                 .expect("We should have the whole history by now")
                 .values()
                 .filter(|(digest, _)| {
-                    parents.iter().any(|x| {
-                        let key = x.header_id.to_vec();
-                        let mut store = self.store.clone();
-                        let res = block_on(store.read(key)).unwrap().unwrap();
-                        let header = Header::from(bincode::deserialize(&res).unwrap());
-                        header.parents.contains(digest)
+                    parents.iter().any(|x| { let parents = state.parent_info.get(&x.header_id).unwrap();
+                        parents.contains(digest)
                     })
                 })
                 .map(|(_, certificate)| certificate)
@@ -371,12 +367,9 @@ impl Consensus {
             debug!("Sequencing {:?}", x);
             ordered.push(x.clone());
 
-            let key = x.header_id.to_vec();
-            let mut store = self.store.clone();
-            let res = block_on(store.read(key)).unwrap().unwrap();
-            let header = Header::from(bincode::deserialize(&res).unwrap());
+            let parents = state.parent_info.get(&x.header_id).unwrap();
 
-            for parent in &header.parents {
+            for parent in parents {
                 let (digest, certificate) = match state
                     .dag
                     .get(&(x.round() - 1))

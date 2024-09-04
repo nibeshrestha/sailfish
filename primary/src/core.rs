@@ -258,11 +258,12 @@ impl Core {
     ) -> DagResult<()> {
         debug!("Processing {:?}", header);
 
+        // Send header to consensus
         self.tx_consensus_header
             .send(header.clone())
             .await
             .expect("Failed to send header to consensus");
-        // Send header to consensus
+
         self.processing_headers
             .entry(header.id.clone())
             .or_insert(header.clone());
@@ -291,16 +292,16 @@ impl Core {
             let mut has_leader = false;
             for x in parents {
                 ensure!(
-                    x.round() + 1 == header.round,
+                    x.round + 1 == header.round,
                     DagError::MalformedHeader(header.id.clone())
                 );
-                stake += self.committee.stake(&x.origin());
+                stake += self.committee.stake(&x.author);
 
                 has_leader = has_leader
                     || self
                         .committee
                         .leader((header.round - 1) as usize)
-                        .eq(&x.origin);
+                        .eq(&x.author);
             }
             ensure!(
                 stake >= self.committee.quorum_threshold(),

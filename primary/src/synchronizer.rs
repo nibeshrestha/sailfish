@@ -21,7 +21,7 @@ pub struct Synchronizer {
     /// Send commands to the `CertificateWaiter`.
     tx_certificate_waiter: Sender<Certificate>,
     /// The genesis and its digests.
-    genesis: Vec<(Digest, Certificate)>,
+    genesis: Vec<(Digest, Header)>,
 }
 
 impl Synchronizer {
@@ -37,9 +37,9 @@ impl Synchronizer {
             store,
             tx_header_waiter,
             tx_certificate_waiter,
-            genesis: Certificate::genesis(committee)
+            genesis: Header::genesis(committee)
                 .into_iter()
-                .map(|x| (x.digest(), x))
+                .map(|x| (x.id.clone(), x))
                 .collect(),
         }
     }
@@ -84,7 +84,7 @@ impl Synchronizer {
     /// Returns the parents of a header if we have them all. If at least one parent is missing,
     /// we return an empty vector, synchronize with other nodes, and re-schedule processing
     /// of the header for when we will have all the parents.
-    pub async fn get_parents(&mut self, header: &Header) -> DagResult<Vec<Certificate>> {
+    pub async fn get_parents(&mut self, header: &Header) -> DagResult<Vec<Header>> {
         let mut missing = Vec::new();
         let mut parents = Vec::new();
         for digest in &header.parents {
@@ -99,7 +99,7 @@ impl Synchronizer {
             }
 
             match self.store.read(digest.to_vec()).await? {
-                Some(certificate) => parents.push(bincode::deserialize(&certificate)?),
+                Some(h) => parents.push(bincode::deserialize(&h)?),
                 None => missing.push(digest.clone()),
             };
         }

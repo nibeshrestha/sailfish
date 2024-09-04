@@ -166,7 +166,7 @@ impl Proposer {
             self.name,
             self.round,
             self.txns.drain(..limit).collect(),
-            self.last_parents.drain(..).map(|x| x.digest()).collect(),
+            self.last_parents.drain(..).map(|x| x.header_id).collect(),
             timeout_cert,
             no_vote_cert,
             &mut self.signature_service,

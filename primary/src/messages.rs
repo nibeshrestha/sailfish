@@ -71,6 +71,14 @@ impl Header {
 
         // Check if pointer to prev leader exists
     }
+
+    pub fn genesis(committee: &Committee) -> Vec<Self> {
+        committee
+            .authorities
+            .keys()
+            .map(|name| Self { ..Self::default() })
+            .collect()
+    }
 }
 
 impl Hash for Header {
