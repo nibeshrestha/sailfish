@@ -621,8 +621,8 @@ impl Core {
                     .map_err(DagError::from)
                     .unwrap();
                 info!(
-                    "Certificate verified for header {:?}",
-                    certificate.header_id
+                    "Certificate verified for header {:?} round {:?}",
+                    certificate.header_id, certificate.round
                 );
                 let _ = tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
             });
@@ -647,21 +647,18 @@ impl Core {
                                 Ok(()) => self.process_header(&header ,&sender_channel).await,
                                 error => error
                             }
-
                         },
                         PrimaryMessage::Timeout(timeout) => {
                             match self.sanitize_timeout(&timeout) {
                                 Ok(()) => self.process_timeout(timeout).await,
                                 error => error
                             }
-
                         },
                         PrimaryMessage::NoVoteMsg(no_vote_msg) => {
                             match self.sanitize_no_vote_msg(&no_vote_msg) {
                                 Ok(()) => self.process_no_vote_msg(no_vote_msg).await,
                                 error => error
                             }
-
                         },
                         PrimaryMessage::Vote(vote) => {
                             match self.sanitize_vote(&vote) {

@@ -158,13 +158,6 @@ impl Consensus {
                             }
                         }
 
-                        // Log the latest committed round of every authority (for debug).
-                        if log_enabled!(log::Level::Debug) {
-                            for (name, round) in &state.last_committed {
-                                debug!("Latest commit of {}: Round {} with header", name, round);
-                            }
-                        }
-
                         // Output the sequence in the right order.
                         for certificate in sequence {
                             // #[cfg(not(feature = "benchmark"))]
@@ -191,7 +184,6 @@ impl Consensus {
                 }
                 // Listen to incoming certificates.
                 Some(certificate) = self.rx_primary.recv() => {
-                    info!("reached here 0");
                     debug!("Processing {:?}", certificate);
                     let round = certificate.round();
 
@@ -207,7 +199,6 @@ impl Consensus {
 
                     // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
                     let leader_round = r;
-                    info!("{} {}", leader_round, state.last_committed_round);
                     if leader_round <= state.last_committed_round {
                         continue;
                     }
