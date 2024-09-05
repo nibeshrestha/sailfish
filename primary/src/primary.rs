@@ -6,7 +6,6 @@ use crate::garbage_collector::GarbageCollector;
 use crate::header_waiter::HeaderWaiter;
 use crate::helper::Helper;
 use crate::messages::{Certificate, Header, NoVoteMsg, Timeout, Vote};
-use crate::payload_receiver::PayloadReceiver;
 use crate::proposer::Proposer;
 use crate::synchronizer::Synchronizer;
 use crate::worker::Worker;

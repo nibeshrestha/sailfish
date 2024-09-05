@@ -151,7 +151,6 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
             Consensus::spawn(
                 committee,
                 parameters.gc_depth,
-                store,
                 /* rx_primary */ rx_new_certificates,
                 rx_consensus_header,
                 /* tx_primary */ tx_feedback,

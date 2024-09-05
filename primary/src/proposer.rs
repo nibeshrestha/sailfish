@@ -1,7 +1,7 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::messages::{Certificate, Header, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert};
 use crate::primary::Round;
-use config::{Committee, WorkerId};
+use config::Committee;
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey, SignatureService};
 #[cfg(feature = "benchmark")]
@@ -10,8 +10,6 @@ use log::{debug, warn};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::os::unix::thread;
-use std::thread as txReceiverThread;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration, Instant};
 pub type Transaction = Vec<u8>;

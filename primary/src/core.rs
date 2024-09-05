@@ -209,10 +209,7 @@ impl Core {
             .push(handler);
 
         // Log the broadcast for debugging purposes.
-        debug!(
-            "Broadcasted own no vote message for round {}",
-            no_vote_msg.round
-        );
+        debug!("Sent no vote message for round {}", no_vote_msg.round);
 
         Ok(())
     }
@@ -319,15 +316,6 @@ impl Core {
                 }
             }
         }
-
-        //NO NEED TO CHECK FOR MISSING PAYLOAD BECAUSE HEADER ITSELF CONTAINS TRANSACTIONS.
-
-        // // Ensure we have the payload. If we don't, the synchronizer will ask our workers to get it, and then
-        // // reschedule processing of this header once we have it.
-        // if self.synchronizer.missing_payload(header).await? {
-        //     debug!("Processing of {} suspended: missing payload", header);
-        //     return Ok(());
-        // }
 
         // Store the header.
         let bytes = bincode::serialize(header).expect("Failed to serialize header");
@@ -445,9 +433,7 @@ impl Core {
         // Add it to the votes' aggregator and try to make a new certificate.
         if let Some(vote_aggregator) = self.processing_vote_aggregators.get_mut(&vote.id) {
             // Add it to the votes' aggregator and try to make a new certificate.
-            if let Some(certificate) =
-                vote_aggregator.append(vote, &self.committee, &self.combined_pubkey)?
-            {
+            if let Some(certificate) = vote_aggregator.append(vote, &self.committee)? {
                 debug!("Assembled {:?}", certificate);
 
                 self.processed_headers.insert(certificate.header_id.clone());
@@ -640,13 +626,9 @@ impl Core {
                 );
                 let _ = tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
             });
-
-            Ok(())
-        } else {
-            Ok(())
         }
 
-        // Ok(())
+        Ok(())
     }
 
     // Main loop listening to incoming messages.

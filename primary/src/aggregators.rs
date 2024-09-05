@@ -1,10 +1,9 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
-use crate::messages::{Certificate, Header, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, Vote};
+use crate::messages::{Certificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, Vote};
 use blsttc::{PublicKeyShareG2, SignatureShareG1};
 use config::{Committee, Stake};
-use crypto::{aggregate_sign, remove_pubkeys, Hash, PublicKey, Signature};
-use log::info;
+use crypto::{aggregate_sign, PublicKey, Signature};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -30,12 +29,7 @@ impl VotesAggregator {
         }
     }
 
-    pub fn append(
-        &mut self,
-        vote: Vote,
-        committee: &Committee,
-        combined_key: &PublicKeyShareG2,
-    ) -> DagResult<Option<Certificate>> {
+    pub fn append(&mut self, vote: Vote, committee: &Committee) -> DagResult<Option<Certificate>> {
         let author = vote.author;
         let author_bls = committee.get_bls_public_g2(&author);
 
@@ -70,20 +64,6 @@ impl VotesAggregator {
 
         if self.weight >= committee.quorum_threshold() {
             self.weight = 0; // Ensures quorum is only reached once.
-
-            // let mut ids = Vec::new();
-            // for idx in 0..committee.size() {
-            //     let x = idx / 128;
-            //     let chunk = self.pk_bit_vec[x];
-            //     let ridx = idx - x * 128;
-            //     if chunk & 1 << ridx != 0 {
-            //         ids.push(idx);
-            //     }
-            // }
-
-            // let agg_pk = remove_pubkeys(combined_key, ids, &self.sorted_keys);
-            // // for checking aggregated sign
-            // SignatureShareG1::verify_batch(&vote.digest().0, &agg_pk, &self.agg_sign).unwrap();
 
             return Ok(Some(Certificate {
                 header_id: vote.id,
