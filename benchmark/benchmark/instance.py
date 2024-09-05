@@ -11,7 +11,7 @@ from google.oauth2 import service_account
 
 #path to your GCP service account key json file
 GCP_KEY_PATH = '../benchmark/benchmark/key.json'
-SSH_PUB_KEY_PATH = '{path_to_ssh_public_key}'
+SSH_PUB_KEY_PATH = '/Users/nibesh/.ssh/id_rsa.pub'
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GCP_KEY_PATH
 compute_service = build('compute', 'v1')

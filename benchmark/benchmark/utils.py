@@ -14,7 +14,15 @@ class PathMaker:
     @staticmethod
     def binary_path():
         return join('..', 'target', 'release')
+    
+    @staticmethod
+    def bootstrap_script_path():
+        return join('benchmark', 'bootstrap_node.sh')
 
+    @staticmethod
+    def update_script_path():
+        return join('benchmark', 'update_node.sh')
+    
     @staticmethod
     def node_crate_path():
         return join('..', 'node')
