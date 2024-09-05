@@ -464,8 +464,8 @@ impl Core {
                         .map_err(DagError::from)
                         .unwrap();
                     info!(
-                        "Certificate verified for header {:?}",
-                        certificate.header_id
+                        "Certificate verified for header {:?} round {:?}",
+                        certificate.header_id, certificate.round
                     );
                     let _ =
                         tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
@@ -621,7 +621,7 @@ impl Core {
                     .map_err(DagError::from)
                     .unwrap();
                 info!(
-                    "Certificate verified for header {:?} round {:?}",
+                    " Ext Certificate verified for header {:?} round {:?}",
                     certificate.header_id, certificate.round
                 );
                 let _ = tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
