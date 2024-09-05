@@ -254,6 +254,7 @@ impl Core {
         tx_primary: &Arc<Sender<PrimaryMessage>>,
     ) -> DagResult<()> {
         debug!("Processing {:?}", header);
+        info!("received header {:?} round {:?}", header.id, header.round);
 
         // Send header to consensus
         self.tx_consensus_header
@@ -420,6 +421,7 @@ impl Core {
         tx_primary: &Arc<Sender<PrimaryMessage>>,
     ) -> DagResult<()> {
         debug!("Processing {:?}", vote);
+        info!("received vote for header {:?} round {:?}", vote.id, vote.round);
 
         if !self.processing_vote_aggregators.contains_key(&vote.id) {
             self.processing_vote_aggregators
