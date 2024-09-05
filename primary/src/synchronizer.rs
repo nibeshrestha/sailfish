@@ -119,22 +119,32 @@ impl Synchronizer {
     /// the `CertificateWaiter` which will trigger re-processing once we have all the missing data.
     pub async fn deliver_certificate(&mut self, certificate: &Certificate) -> DagResult<bool> {
         let key = certificate.header_id.to_vec();
-        let res = self.store.read(key).await.unwrap().unwrap();
-        let header = Header::from(bincode::deserialize(&res).unwrap());
+        
+        if let Some(head) =  self.store.read(key).await.unwrap() {
+            let header = Header::from(bincode::deserialize(&head).unwrap());
 
-        for digest in &header.parents {
-            if self.genesis.iter().any(|(x, _)| x == digest) {
-                continue;
+            for digest in &header.parents {
+                if self.genesis.iter().any(|(x, _)| x == digest) {
+                    continue;
+                }
+
+                if self.store.read(digest.to_vec()).await?.is_none() {
+                    self.tx_certificate_waiter
+                        .send(certificate.clone())
+                        .await
+                        .expect("Failed to send sync certificate request");
+                    return Ok(false);
+                };
             }
+            Ok(true)
+        }else {
 
-            if self.store.read(digest.to_vec()).await?.is_none() {
-                self.tx_certificate_waiter
-                    .send(certificate.clone())
-                    .await
-                    .expect("Failed to send sync certificate request");
-                return Ok(false);
-            };
+            self.tx_certificate_waiter
+                        .send(certificate.clone())
+                        .await
+                        .expect("Failed to send sync certificate request");
+            Ok(false)
         }
-        Ok(true)
+        
     }
 }
