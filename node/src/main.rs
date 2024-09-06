@@ -5,6 +5,7 @@ use config::BlsKeyPair;
 use config::Export as _;
 use config::Import as _;
 use config::{Committee, KeyPair, Parameters, WorkerId};
+use crypto::combine_keys;
 use consensus::Consensus;
 use env_logger::Env;
 use log::info;
@@ -111,6 +112,8 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
 
     info!("{}", sorted_keys.len());
 
+    let combined_pubkey = combine_keys(&sorted_keys);
+
     // Load default parameters if none are specified.
     let parameters = match parameters_file {
         Some(filename) => {
@@ -137,6 +140,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
                 bls_keypair,
                 committee.clone(),
                 sorted_keys,
+                combined_pubkey,
                 parameters.clone(),
                 store,
                 /* tx_consensus */ tx_new_certificates,
