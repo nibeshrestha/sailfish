@@ -158,13 +158,6 @@ impl Consensus {
                             }
                         }
 
-                        // Log the latest committed round of every authority (for debug).
-                        if log_enabled!(log::Level::Debug) {
-                            for (name, round) in &state.last_committed {
-                                debug!("Latest commit of {}: Round {} with header", name, round);
-                            }
-                        }
-
                         // Output the sequence in the right order.
                         for certificate in sequence {
                             // #[cfg(not(feature = "benchmark"))]

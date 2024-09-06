@@ -254,6 +254,7 @@ impl Core {
         tx_primary: &Arc<Sender<PrimaryMessage>>,
     ) -> DagResult<()> {
         debug!("Processing {:?}", header);
+        info!("received header {:?} round {:?}", header.id, header.round);
 
         // Send header to consensus
         self.tx_consensus_header
@@ -281,6 +282,7 @@ impl Core {
             let parents = self.synchronizer.get_parents(header).await?;
             if parents.is_empty() {
                 debug!("Processing of {} suspended: missing parent(s)", header.id);
+                info!("Missing parents");
                 return Ok(());
             }
             info!("{:?}", parents);
@@ -464,8 +466,8 @@ impl Core {
                         .map_err(DagError::from)
                         .unwrap();
                     info!(
-                        "Certificate verified for header {:?}",
-                        certificate.header_id
+                        "Certificate verified for header {:?} round {:?}",
+                        certificate.header_id, certificate.round
                     );
                     let _ =
                         tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
@@ -621,8 +623,8 @@ impl Core {
                     .map_err(DagError::from)
                     .unwrap();
                 info!(
-                    "Certificate verified for header {:?}",
-                    certificate.header_id
+                    "Ext Certificate verified for header {:?} round {:?}",
+                    certificate.header_id, certificate.round
                 );
                 let _ = tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
             });
