@@ -191,7 +191,6 @@ impl Consensus {
                 }
                 // Listen to incoming certificates.
                 Some(certificate) = self.rx_primary.recv() => {
-                    info!("reached here 0");
                     debug!("Processing {:?}", certificate);
                     let round = certificate.round();
 
@@ -207,7 +206,7 @@ impl Consensus {
 
                     // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
                     let leader_round = r;
-                    info!("{} {}", leader_round, state.last_committed_round);
+                    
                     if leader_round <= state.last_committed_round {
                         continue;
                     }
