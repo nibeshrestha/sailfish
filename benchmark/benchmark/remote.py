@@ -286,7 +286,8 @@ class Bench:
             # Copy the Deploy Key to /home/ubuntu
             await sftp.put(PathMaker.committee_file(), '.', preserve=True)
             # Copy the installation and update scripts to the same location
-            await sftp.put(PathMaker.key_file(id), '.', preserve=True)
+            await sftp.put(PathMaker.bls_key_file(id), '.', preserve=True)
+            await sftp.put(PathMaker.ed_key_file(id), '.', preserve=True)
             await sftp.put(PathMaker.parameters_file(), '.', preserve=True)
 
     def _generate_config(self, hosts, node_parameters, bench_parameters):
@@ -309,7 +310,7 @@ class Bench:
 
         # Generate configuration files.
         keys = []
-        key_files = [PathMaker.key_file(i) for i in range(len(hosts))]
+        key_files = [PathMaker.ed_key_file(i) for i in range(len(hosts))]
         for filename in key_files:
             cmd = CommandMaker.generate_ed_key(filename).split()
             subprocess.run(cmd, check=True)
@@ -459,7 +460,7 @@ class Bench:
             
             if not consensus_only:
                 await self._download_client_logs(faults, committee, hosts_to_connections)
-                await self._download_worker_logs(faults, committee, hosts_to_connections)
+                # await self._download_worker_logs(faults, committee, hosts_to_connections)
         except Exception as e:
             raise Exception(f'Failed to download logs: {e}')
 

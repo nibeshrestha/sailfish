@@ -34,8 +34,6 @@ impl VotesAggregator {
         &mut self,
         vote: Vote,
         committee: &Committee,
-        header: &Header,
-        combined_key: &PublicKeyShareG2,
     ) -> DagResult<Option<Certificate>> {
         let author = vote.author;
         let author_bls = committee.get_bls_public_g2(&author);
@@ -89,10 +87,9 @@ impl VotesAggregator {
             // SignatureShareG1::verify_batch(&vote.digest().0, &agg_pk, &self.agg_sign).unwrap();
             
             return Ok(Some(Certificate {
-                header_id: header.digest(),
-                round: header.round,
-                origin: header.author,
-                parents: header.parents.clone(),
+                header_id: vote.id,
+                round: vote.round,
+                origin: vote.origin,
                 votes: (self.pk_bit_vec.clone(), self.agg_sign),
             }));
         }

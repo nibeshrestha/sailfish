@@ -14,7 +14,7 @@ pub mod consensus_tests;
 
 /// The representation of the DAG in memory.
 type Dag = HashMap<Round, HashMap<PublicKey, (Digest, Certificate)>>;
-
+type ParentInfo = HashMap<Digest, BTreeSet<Digest>>;
 /// The state that needs to be persisted for crash-recovery.
 struct State {
     /// The last committed round.
@@ -25,6 +25,7 @@ struct State {
     /// Keeps the latest committed certificate (and its parents) for every authority. Anything older
     /// must be regularly cleaned up through the function `update`.
     dag: Dag,
+    parent_info: ParentInfo,
 }
 
 impl State {
@@ -38,6 +39,7 @@ impl State {
             last_committed_round: 0,
             last_committed: genesis.iter().map(|(x, (_, y))| (*x, y.round())).collect(),
             dag: [(0, genesis)].iter().cloned().collect(),
+            parent_info: HashMap::new(),
         }
     }
 
@@ -177,7 +179,7 @@ impl Consensus {
         commitable_leaders
     }
 
-    fn prev_commitable_leaders(&self, round: Round, dag: &Dag, certificate: &Certificate) -> Vec<Certificate> {
+    fn prev_commitable_leaders(&self, round: Round, state: &State, certificate: &Certificate) -> Vec<Certificate> {
         
         let num_leaders = self.leaders_per_round;
         // Retrieve the current leaders
@@ -188,11 +190,11 @@ impl Consensus {
 
         // Iterate through the current leaders
         for leader in current_leaders {
-            if let Some((_, leader_cert)) = dag.get(&round)
+            if let Some((_, leader_cert)) = state.dag.get(&round)
                 .and_then(|x| x.get(&leader).map(|(digest, cert)| (digest.clone(), cert.clone())))
             {
                 // Check if the leader is linked with the previous leader
-                if self.linked(&leader_cert, &certificate, dag) {
+                if self.linked(&leader_cert, &certificate, &state) {
                 // If linked, add the certificate to the valid certificates vector
                 valid_certificates.push(leader_cert);
                 }
@@ -220,6 +222,7 @@ impl Consensus {
                 Some(header) = self.rx_primary_header.recv() => {
                     debug!("Processing {:?}", header);
 
+                    state.parent_info.insert(header.id.clone(), header.parents.clone());
                     // Try to order the dag to commit. Start from the previous round.
                     let r = header.round - 1;
 
@@ -349,7 +352,7 @@ impl Consensus {
                         .dag
                         .entry(round)
                         .or_insert_with(HashMap::new)
-                        .insert(certificate.origin(), (certificate.digest(), certificate.clone()));
+                        .insert(certificate.origin(), (certificate.header_id.clone(), certificate.clone()));
         
                     // Try to order the dag to commit. Start from the previous round and check if it is a leader round.
                     let r = round - 1;
@@ -360,8 +363,10 @@ impl Consensus {
                         continue;
                     }
 
+                    let parents = state.parent_info.get(&certificate.header_id).unwrap();
+
                     if leader_round == state.last_committed_round {
-                        let commitable_leaders = self.update_sub_leaders_post_commit(&state.dag, leader_round, &certificate.origin, &certificate.parents);
+                        let commitable_leaders = self.update_sub_leaders_post_commit(&state.dag, leader_round, &certificate.origin, &parents);
 
                         let mut sequence = Vec::new();
 
@@ -414,7 +419,10 @@ impl Consensus {
                         .get(&round)
                         .expect("We should have the whole history by now")
                         .values()
-                        .filter(|(_, x)| x.parents.contains(leader_digest))
+                        .filter(|(_, x)| {
+                            let parents = state.parent_info.get(&x.header_id).unwrap();
+                            parents.contains(leader_digest)
+                        })
                         .map(|(_, x)| self.committee.stake(&x.origin()))
                         .sum();
         
@@ -426,7 +434,7 @@ impl Consensus {
                         continue;
                     }
 
-                    let commitable_leaders = self.update_sub_leaders(&state.dag, leader_round, &certificate.origin, &certificate.parents);
+                    let commitable_leaders = self.update_sub_leaders(&state.dag, leader_round, &certificate.origin, &parents);
         
                     // Get an ordered list of past leaders that are linked to the current leader.
                     debug!("Leader {:?} has enough support", leader);
@@ -513,7 +521,7 @@ impl Consensus {
         for r in (state.last_committed_round + 1..=leader.round() - 1)
             .rev()
         {
-            let prev_leaders = self.prev_commitable_leaders(r, &state.dag, leader);
+            let prev_leaders = self.prev_commitable_leaders(r, &state, leader);
 
             // Push all previous leaders in reverse order
             for prev_leader in prev_leaders.iter().rev() {
@@ -524,14 +532,17 @@ impl Consensus {
     }
 
     /// Checks if there is a path between two leaders.
-    fn linked(&self, leader: &Certificate, prev_leader: &Certificate, dag: &Dag) -> bool {
+    fn linked(&self, leader: &Certificate, prev_leader: &Certificate, state : &State) -> bool {
         let mut parents = vec![leader];
         for r in (prev_leader.round()..leader.round()).rev() {
-            parents = dag
+            parents = state.dag
                 .get(&(r))
                 .expect("We should have the whole history by now")
                 .values()
-                .filter(|(digest, _)| parents.iter().any(|x| x.parents.contains(digest)))
+                .filter(|(digest, _)| parents.iter().any(|x| {
+                    let parents = state.parent_info.get(&x.header_id).unwrap();
+                    parents.contains(digest)
+                }))
                 .map(|(_, certificate)| certificate)
                 .collect();
         }
@@ -546,10 +557,13 @@ impl Consensus {
         let mut already_ordered = HashSet::new();
 
         let mut buffer = vec![leader];
+
         while let Some(x) = buffer.pop() {
             debug!("Sequencing {:?}", x);
             ordered.push(x.clone());
-            for parent in &x.parents {
+            let parents = state.parent_info.get(&x.header_id).unwrap();
+            
+            for parent in parents {
                 let (digest, certificate) = match state
                     .dag
                     .get(&(x.round() - 1))

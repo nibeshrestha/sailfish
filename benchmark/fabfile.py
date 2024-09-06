@@ -16,7 +16,7 @@ def local(ctx, debug=False):
         'faults': 0,
         'nodes': 4,
         'workers': 1,
-        'rate': 5_000,
+        'rate': 100_000,
         'tx_size': 512,
         'duration': 20,
         "burst" : 50
@@ -101,7 +101,7 @@ def remote(ctx, burst = 50, debug=False):
         'nodes': 10,
         'workers': 1,
         'collocate': True,
-        'rate': [50000],
+        'rate': [100000],
         'tx_size': 512,
         'duration': 180,
         'runs': 1,
@@ -113,7 +113,7 @@ def remote(ctx, burst = 50, debug=False):
     bench_params['rate'] = [rate]
 
     node_params = {
-        'header_size': 50,  # bytes
+        'header_size': 512000,  # bytes
         'max_header_delay': 5_000,  # ms
         'gc_depth': 50,  # rounds
         'sync_retry_delay': 10_000,  # ms

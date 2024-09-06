@@ -114,7 +114,7 @@ impl Primary {
             address,
             /* handler */
             PrimaryReceiverHandler {
-                tx_primary_messages,
+                tx_primary_messages: tx_primary_messages.clone(),
                 tx_cert_requests,
             },
         );
@@ -167,15 +167,16 @@ impl Primary {
         Core::spawn(
             name,
             name_bls,
-            committee.clone(),
+            Arc::new(committee.clone()),
             sorted_keys,
-            combined_key,
+            Arc::new(combined_key),
             store.clone(),
             synchronizer,
             signature_service.clone(),
             bls_signature_service,
             consensus_round.clone(),
             parameters.gc_depth,
+            tx_primary_messages,
             /* rx_primaries */ rx_primary_messages,
             /* rx_header_waiter */ rx_headers_loopback,
             /* rx_certificate_waiter */ rx_certificates_loopback,

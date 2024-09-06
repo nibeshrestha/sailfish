@@ -69,6 +69,14 @@ impl Header {
         // Check if pointer to prev leader exists
         
     }
+
+    pub fn genesis(committee: &Committee) -> Vec<Self> {
+        committee
+            .authorities
+            .keys()
+            .map(|name| Self { ..Self::default() })
+            .collect()
+    }
 }
 
 impl Hash for Header {
@@ -395,7 +403,6 @@ pub struct Certificate {
     pub header_id: Digest,
     pub round : Round,
     pub origin: PublicKey,
-    pub parents: BTreeSet<Digest>,
     pub votes: (Vec<u128>, SignatureShareG1),
 }
 
@@ -445,7 +452,7 @@ impl Certificate {
         }
         // let pks: Vec<PublicKeyShareG2> = ids.iter().map(|i| sorted_keys[*i]).collect();
         let agg_pk = remove_pubkeys(&combined_pubkey, ids, &sorted_keys);
-        
+
         SignatureShareG1::verify_batch(&self.digest().0, &agg_pk,&self.votes.1).map_err(DagError::from)
         
     }
