@@ -282,9 +282,9 @@ impl Core {
             let parents = self.synchronizer.get_parents(header).await?;
             if parents.is_empty() {
                 debug!("Processing of {} suspended: missing parent(s)", header.id);
+                info!("Missing parents");
                 return Ok(());
             }
-            info!("{:?}", parents);
             //Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
             let mut stake = 0;
             let mut has_leader = false;
@@ -421,7 +421,6 @@ impl Core {
         tx_primary: &Arc<Sender<PrimaryMessage>>,
     ) -> DagResult<()> {
         debug!("Processing {:?}", vote);
-        info!("received vote for header {:?} round {:?}", vote.id, vote.round);
 
         if !self.processing_vote_aggregators.contains_key(&vote.id) {
             self.processing_vote_aggregators
