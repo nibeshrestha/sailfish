@@ -1,6 +1,6 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
+use blsttc::{PublicKeyShareG2, SecretKeyShare};
 use crypto::{generate_production_keypair, PublicKey, SecretKey};
-use blsttc::{PublicKeyShareG2,SecretKeyShare};
 use log::info;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -81,7 +81,7 @@ pub struct Parameters {
     /// The delay after which the workers seal a batch of transactions, even if `max_batch_size`
     /// is not reached. Denominated in ms.
     pub max_batch_delay: u64,
-    pub leaders_per_round : usize,
+    pub leaders_per_round: usize,
 }
 
 impl Default for Parameters {
@@ -95,7 +95,7 @@ impl Default for Parameters {
             batch_size: 500_000,
             tx_size: 512,
             max_batch_delay: 100,
-            leaders_per_round : 3,
+            leaders_per_round: 3,
         }
     }
 }
@@ -135,7 +135,7 @@ pub struct WorkerAddresses {
 
 #[derive(Clone, Deserialize)]
 pub struct Authority {
-    pub bls_pubkey_g2 : PublicKeyShareG2,
+    pub bls_pubkey_g2: PublicKeyShareG2,
     /// The voting power of this authority.
     pub stake: Stake,
     /// The network addresses of the primary.
@@ -212,6 +212,16 @@ impl Committee {
         sub_leaders
     }
 
+    pub fn leader_list(&self, leaders_per_round: usize, seed: usize) -> Vec<PublicKey> {
+        let mut keys: Vec<_> = self.authorities.keys().cloned().collect();
+        keys.sort();
+        let mut leaders: Vec<PublicKey> = Vec::new();
+        for i in 0..leaders_per_round {
+            leaders.push(keys[(seed + i) % self.size()]);
+        }
+        leaders
+    }
+
     /// Returns the primary addresses of the target primary.
     pub fn primary(&self, to: &PublicKey) -> Result<PrimaryAddresses, ConfigError> {
         self.authorities
@@ -284,7 +294,10 @@ impl Committee {
             .collect()
     }
     pub fn get_bls_public_keys(&self) -> Vec<PublicKeyShareG2> {
-        self.authorities.iter().map(|(_, x)| x.bls_pubkey_g2).collect()
+        self.authorities
+            .iter()
+            .map(|(_, x)| x.bls_pubkey_g2)
+            .collect()
     }
 
     pub fn get_bls_public_g2(&self, name: &PublicKey) -> PublicKeyShareG2 {
@@ -316,8 +329,6 @@ impl Default for KeyPair {
     }
 }
 
-
-
 //bls
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -345,4 +356,3 @@ impl Default for BlsKeyPair {
         }
     }
 }
-

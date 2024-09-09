@@ -1,15 +1,17 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::aggregators::{CertificatesAggregator, NoVoteAggregator, TimeoutAggregator, VotesAggregator};
+use crate::aggregators::{
+    CertificatesAggregator, NoVoteAggregator, TimeoutAggregator, VotesAggregator,
+};
 use crate::error::{DagError, DagResult};
 use crate::messages::{Certificate, Header, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, Vote};
 use crate::primary::{PrimaryMessage, Round};
 use crate::synchronizer::Synchronizer;
 use async_recursion::async_recursion;
+use blsttc::PublicKeyShareG2;
 use bytes::Bytes;
 use config::Committee;
 use crypto::{BlsSignatureService, Hash as _};
 use crypto::{Digest, PublicKey, SignatureService};
-use blsttc::PublicKeyShareG2;
 use log::{debug, error, info, warn};
 use network::{CancelHandler, ReliableSender};
 use std::collections::{HashMap, HashSet};
@@ -29,7 +31,7 @@ pub struct Core {
     /// The committee information.
     committee: Arc<Committee>,
     sorted_keys: Arc<Vec<PublicKeyShareG2>>,
-    combined_pubkey : Arc<PublicKeyShareG2>,
+    combined_pubkey: Arc<PublicKeyShareG2>,
     /// The persistent storage.
     store: Store,
     /// Handles synchronization with other nodes and our workers.
@@ -89,6 +91,8 @@ pub struct Core {
     timeouts_aggregators: HashMap<Round, Box<TimeoutAggregator>>,
     /// Aggregates no vote messages to use for sending no vote certificates.
     no_vote_aggregators: HashMap<Round, HashMap<PublicKey, Box<NoVoteAggregator>>>,
+
+    leaders_per_round: usize,
 }
 
 impl Core {
@@ -98,7 +102,7 @@ impl Core {
         name_bls: PublicKeyShareG2,
         committee: Arc<Committee>,
         sorted_keys: Arc<Vec<PublicKeyShareG2>>,
-        combined_pubkey : Arc<PublicKeyShareG2>,
+        combined_pubkey: Arc<PublicKeyShareG2>,
         store: Store,
         synchronizer: Synchronizer,
         signature_service: SignatureService,
@@ -117,6 +121,7 @@ impl Core {
         tx_timeout_cert: Sender<(TimeoutCert, Round)>,
         tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
         tx_consensus_header: Sender<Header>,
+        leaders_per_round: usize,
     ) {
         tokio::spawn(async move {
             Self {
@@ -153,6 +158,7 @@ impl Core {
                 cancel_handlers: HashMap::with_capacity(2 * gc_depth as usize),
                 timeouts_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 no_vote_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
+                leaders_per_round,
             }
             .run()
             .await;
@@ -192,9 +198,7 @@ impl Core {
             .expect("Failed to serialize own no vote message");
 
         // Send No Vote Msg to the leader of the round
-        let leader_pub_key = self
-            .committee
-            .leader((no_vote_msg.round + 1) as usize);
+        let leader_pub_key = self.committee.leader((no_vote_msg.round + 1) as usize);
 
         let address = self
             .committee
@@ -209,12 +213,19 @@ impl Core {
             .push(handler);
 
         // Log the broadcast for debugging purposes.
-        debug!("Broadcasted own no vote message for round {}", no_vote_msg.round);
+        debug!(
+            "Broadcasted own no vote message for round {}",
+            no_vote_msg.round
+        );
 
         Ok(())
     }
 
-    async fn process_own_header(&mut self, header: Header, tx_primary: &Arc<Sender<PrimaryMessage>>) -> DagResult<()> {
+    async fn process_own_header(
+        &mut self,
+        header: Header,
+        tx_primary: &Arc<Sender<PrimaryMessage>>,
+    ) -> DagResult<()> {
         // Reset the votes aggregator.
         let sorted_keys = Arc::clone(&self.sorted_keys);
         self.processing_headers
@@ -240,16 +251,21 @@ impl Core {
             .extend(handlers);
 
         // Process the header.
-        self.process_header(&header , tx_primary).await
+        self.process_header(&header, tx_primary).await
     }
 
     #[async_recursion]
-    async fn process_header(&mut self, header: &Header, tx_primary: &Arc<Sender<PrimaryMessage>>) -> DagResult<()> {
+    async fn process_header(
+        &mut self,
+        header: &Header,
+        tx_primary: &Arc<Sender<PrimaryMessage>>,
+    ) -> DagResult<()> {
         debug!("Processing {:?}", header);
         info!("received header {:?} round {:?}", header.id, header.round);
-        
+
         // Send header to consensus
-        self.tx_consensus_header.send(header.clone())
+        self.tx_consensus_header
+            .send(header.clone())
             .await
             .expect("Failed to send header to consensus");
         // Indicate that we are processing this header.
@@ -267,7 +283,7 @@ impl Core {
         // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
         // reschedule processing of this header.
 
-        if header.round != 1  {
+        if header.round != 1 {
             let parents = self.synchronizer.get_parents(header).await?;
             if parents.is_empty() {
                 debug!("Processing of {} suspended: missing parent(s)", header.id);
@@ -283,8 +299,12 @@ impl Core {
                     DagError::MalformedHeader(header.id.clone())
                 );
                 stake += self.committee.stake(&x.author);
-                
-                has_leader = has_leader || self.committee.leader((header.round - 1) as usize).eq(&x.author);
+
+                has_leader = has_leader
+                    || self
+                        .committee
+                        .leader((header.round - 1) as usize)
+                        .eq(&x.author);
             }
             ensure!(
                 stake >= self.committee.quorum_threshold(),
@@ -293,16 +313,18 @@ impl Core {
 
             if !has_leader {
                 header.timeout_cert.verify(&self.committee)?;
-                if self.committee.leader(header.round as usize).eq(&header.author) {
+                if self
+                    .committee
+                    .leader(header.round as usize)
+                    .eq(&header.author)
+                {
                     for nvc in header.no_vote_certs.clone() {
                         nvc.verify(&self.committee)?;
                     }
                 }
             }
         }
-        
 
-        
         //NO NEED TO CHECK FOR MISSING PAYLOAD BECAUSE HEADER ITSELF CONTAINS TRANSACTIONS.
 
         // // Ensure we have the payload. If we don't, the synchronizer will ask our workers to get it, and then
@@ -326,7 +348,7 @@ impl Core {
             // Make a vote and send it to all nodes
             let vote = Vote::new(header, &self.name, &mut self.bls_signature_service).await;
             // debug!("Created {:?}", vote);
-        
+
             let addresses = self
                 .committee
                 .others_primaries(&self.name)
@@ -344,7 +366,6 @@ impl Core {
             self.process_vote(vote, tx_primary)
                 .await
                 .expect("Failed to process our own vote");
-
         }
         Ok(())
     }
@@ -375,16 +396,19 @@ impl Core {
         debug!("Processing {:?}", no_vote_msg);
 
         // Check if there's already an aggregator for this round, prepare to add if not
-        if !self.no_vote_aggregators
-        .entry(no_vote_msg.round).
-        or_insert_with(|| HashMap::new()).
-        contains_key(&no_vote_msg.leader) {
+        if !self
+            .no_vote_aggregators
+            .entry(no_vote_msg.round)
+            .or_insert_with(|| HashMap::new())
+            .contains_key(&no_vote_msg.leader)
+        {
             let initial_no_vote_msg = NoVoteMsg::new(
                 no_vote_msg.round,
                 no_vote_msg.leader,
                 self.name.clone(),
-                &mut self.signature_service
-            ).await;
+                &mut self.signature_service,
+            )
+            .await;
 
             let mut aggregator = NoVoteAggregator::new();
             // Add the initial message to the new aggregator
@@ -417,7 +441,11 @@ impl Core {
     }
 
     #[async_recursion]
-    async fn process_vote(&mut self, vote: Vote, tx_primary: &Arc<Sender<PrimaryMessage>>) -> DagResult<()> {
+    async fn process_vote(
+        &mut self,
+        vote: Vote,
+        tx_primary: &Arc<Sender<PrimaryMessage>>,
+    ) -> DagResult<()> {
         debug!("Processing {:?}", vote);
 
         if !self.processing_vote_aggregators.contains_key(&vote.id) {
@@ -430,14 +458,9 @@ impl Core {
         }
 
         // Add it to the votes' aggregator and try to make a new certificate.
-        if let Some(vote_aggregator) =
-            self.processing_vote_aggregators.get_mut(&vote.id)
-            {
+        if let Some(vote_aggregator) = self.processing_vote_aggregators.get_mut(&vote.id) {
             // Add it to the votes' aggregator and try to make a new certificate.
-            if let Some(certificate) =
-            vote_aggregator
-                .append(vote, &self.committee)?
-            {
+            if let Some(certificate) = vote_aggregator.append(vote, &self.committee)? {
                 debug!("Assembled {:?}", certificate);
                 self.processed_headers.insert(certificate.header_id.clone());
 
@@ -516,7 +539,7 @@ impl Core {
             .certificates_aggregators
             .entry(certificate.round())
             .or_insert_with(|| Box::new(CertificatesAggregator::new()))
-            .append(certificate.clone(), &self.committee)?
+            .append(certificate.clone(), &self.committee, self.leaders_per_round)?
         {
             // Send it to the `Proposer`.
             self.tx_proposer
@@ -534,8 +557,8 @@ impl Core {
                 id, e
             );
         }
-        self.processing_headers.remove(&id);
-        self.processing_vote_aggregators.remove(&id);
+        //self.processing_headers.remove(&id);
+        //self.processing_vote_aggregators.remove(&id);
         Ok(())
     }
 
@@ -586,9 +609,7 @@ impl Core {
 
             // Ensure we receive a vote on the expected header.
             ensure!(
-                vote.id == header.id
-                    && vote.origin == header.author
-                    && vote.round == header.round,
+                vote.id == header.id && vote.origin == header.author && vote.round == header.round,
                 DagError::UnexpectedVote(vote.id.clone())
             );
         }
@@ -597,7 +618,11 @@ impl Core {
         // vote.verify(&self.committee).map_err(DagError::from)
     }
 
-    fn sanitize_certificate(&mut self, certificate: Certificate, tx_primary: &Arc<Sender<PrimaryMessage>>) -> DagResult<()> {
+    fn sanitize_certificate(
+        &mut self,
+        certificate: Certificate,
+        tx_primary: &Arc<Sender<PrimaryMessage>>,
+    ) -> DagResult<()> {
         ensure!(
             self.gc_round <= certificate.round(),
             DagError::TooOld(certificate.digest(), certificate.round())
@@ -621,17 +646,16 @@ impl Core {
                 );
                 let _ = tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
             });
-        } 
-        
-            Ok(())
         }
 
+        Ok(())
+    }
 
     // Main loop listening to incoming messages.
     pub async fn run(&mut self) {
         let tx_primary = Arc::new(self.tx_primary.clone());
         let sender_channel = tx_primary.clone();
-        
+
         loop {
             let result = tokio::select! {
                 // We receive here messages from other primaries.

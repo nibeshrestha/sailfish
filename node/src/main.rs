@@ -4,9 +4,9 @@ use clap::{crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
 use config::BlsKeyPair;
 use config::Export as _;
 use config::Import as _;
-use config::{Committee, KeyPair, Parameters, WorkerId};
-use crypto::combine_keys;
+use config::{Committee, KeyPair, Parameters};
 use consensus::Consensus;
+use crypto::combine_keys;
 use env_logger::Env;
 use log::info;
 use primary::{Certificate, Primary};
@@ -146,6 +146,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
                 /* tx_consensus */ tx_new_certificates,
                 /* rx_consensus */ rx_feedback,
                 tx_consensus_header,
+                parameters.leaders_per_round,
             );
             Consensus::spawn(
                 committee,

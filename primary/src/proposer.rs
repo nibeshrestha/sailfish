@@ -2,17 +2,16 @@ use crate::batch_maker::Transaction;
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::messages::{Certificate, Header, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert};
 use crate::primary::Round;
-use config::{Committee, WorkerId};
+use config::Committee;
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey, SignatureService};
 #[cfg(feature = "benchmark")]
 use log::info;
 use log::{debug, warn};
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::convert::TryInto;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration, Instant};
-use std::convert::TryInto;
 
 #[cfg(test)]
 #[path = "tests/proposer_tests.rs"]
@@ -53,7 +52,7 @@ pub struct Proposer {
     /// Holds the certificates' ids waiting to be included in the next header.
     last_parents: Vec<Certificate>,
     /// Holds the certificate of the last leader (if any).
-    last_leader: Option<Certificate>,
+    last_leaders: Vec<Option<Certificate>>,
     /// Holds the txns waiting to be included in the next header.
     txns: Vec<Transaction>,
     /// Keeps track of the size (in bytes) of batches' digests that we received so far.
@@ -63,7 +62,7 @@ pub struct Proposer {
     /// Holds the latest No Vote Certificate received.
     last_no_vote_cert: Vec<NoVoteCert>,
     ///The total numbers of leaders in each round
-    leaders_per_round : usize,
+    leaders_per_round: usize,
 }
 
 impl Proposer {
@@ -83,7 +82,7 @@ impl Proposer {
         rx_timeout_cert: Receiver<(TimeoutCert, Round)>,
         tx_core_no_vote_msg: Sender<NoVoteMsg>,
         rx_no_vote_cert: Receiver<(NoVoteCert, Round)>,
-        leaders_per_round : usize,
+        leaders_per_round: usize,
     ) {
         let genesis = Certificate::genesis(&committee);
         tokio::spawn(async move {
@@ -104,12 +103,12 @@ impl Proposer {
                 rx_no_vote_cert,
                 round: 0,
                 last_parents: genesis,
-                last_leader: None,
+                last_leaders: vec![None; leaders_per_round],
                 txns: Vec::new(),
                 payload_size: 0,
-                last_timeout_cert: TimeoutCert:: new(0),
+                last_timeout_cert: TimeoutCert::new(0),
                 last_no_vote_cert: Vec::with_capacity(leaders_per_round),
-                leaders_per_round
+                leaders_per_round,
             }
             .run()
             .await;
@@ -117,11 +116,8 @@ impl Proposer {
     }
 
     async fn make_timeout_msg(&mut self) {
-        let timeout_cert_msg = Timeout::new(
-            self.round,
-            self.name,
-            &mut self.signature_service,
-        ).await;
+        let timeout_cert_msg =
+            Timeout::new(self.round, self.name, &mut self.signature_service).await;
 
         debug!("Created {:?}", timeout_cert_msg);
 
@@ -133,12 +129,8 @@ impl Proposer {
     }
 
     async fn make_no_vote_msg(&mut self, leader: PublicKey) {
-        let no_vote_msg = NoVoteMsg::new(
-            self.round,
-            leader,
-            self.name,
-            &mut self.signature_service,
-        ).await;
+        let no_vote_msg =
+            NoVoteMsg::new(self.round, leader, self.name, &mut self.signature_service).await;
 
         debug!("Created {:?}", no_vote_msg);
 
@@ -158,16 +150,19 @@ impl Proposer {
             TimeoutCert::new(0) // Assuming TimeoutCert::new creates an empty certificate
         };
 
-        let no_vote_certs = if self.committee.leader((self.round) as usize) == self.name && self.last_no_vote_cert.len() > 0 && self.last_no_vote_cert[0].round == self.round - 1 {
+        let no_vote_certs = if self.committee.leader((self.round) as usize) == self.name
+            && self.last_no_vote_cert.len() > 0
+            && self.last_no_vote_cert[0].round == self.round - 1
+        {
             self.last_no_vote_cert.clone()
         } else {
             Vec::new()
         };
 
-        let limit = if self.txns.len()*self.tx_size <= self.header_size {
+        let limit = if self.txns.len() * self.tx_size <= self.header_size {
             self.txns.len()
-        }else {
-            self.header_size/self.tx_size
+        } else {
+            self.header_size / self.tx_size
         };
 
         let header = Header::new(
@@ -184,10 +179,14 @@ impl Proposer {
         // debug!("Created {:?}", header.id);
 
         #[cfg(feature = "benchmark")]
-        {   
+        {
             info!("Created {:?}", header.id);
-            info!("Header {:?} contains {} B", header.id, header.payload.len()*self.tx_size);
-            
+            info!(
+                "Header {:?} contains {} B",
+                header.id,
+                header.payload.len() * self.tx_size
+            );
+
             let tx_ids: Vec<_> = header
                 .payload
                 .clone()
@@ -204,7 +203,7 @@ impl Proposer {
             }
             // NOTE: This log entry is used to compute performance.
         }
-        
+
         // Send the new header to the `Core` that will broadcast and process it.
         self.tx_core
             .send(header)
@@ -213,26 +212,33 @@ impl Proposer {
     }
 
     /// Update the last leader.
-    fn update_leader(&mut self) -> bool {
-        let leader_name = self.committee.leader(self.round as usize);
-        self.last_leader = self
-            .last_parents
-            .iter()
-            .find(|x| x.origin() == leader_name)
-            .cloned();
+    fn update_leaders(&mut self) -> bool {
+        let leaders_name = self
+            .committee
+            .leader_list(self.leaders_per_round, self.round as usize);
+        for i in 0..self.leaders_per_round {
+            self.last_leaders[i] = self
+                .last_parents
+                .iter()
+                .find(|x| x.origin() == leaders_name[i])
+                .cloned();
 
-        if let Some(leader) = self.last_leader.as_ref() {
-            debug!("Got leader {} for round {}", leader.origin(), self.round);
+            if let Some(leader) = self.last_leaders[i].as_ref() {
+                debug!("Got leader {} for round {}", leader.origin(), self.round);
+            }
         }
 
-        self.last_leader.is_some()
+        check_last_leaders(&self.last_leaders)
     }
 
     fn nvm_leaders(&mut self) -> Vec<PublicKey> {
-        let current_leaders = self.committee.sub_leaders(self.round as usize, self.leaders_per_round);
+        let current_leaders = self
+            .committee
+            .sub_leaders(self.round as usize, self.leaders_per_round);
 
         // Extract authors from the last leaders' certificates
-        let last_leader_authors: Vec<_> = self.last_parents.iter().map(|cert| &cert.origin).collect();
+        let last_leader_authors: Vec<_> =
+            self.last_parents.iter().map(|cert| &cert.origin).collect();
 
         // Filter out the public keys that are in current_leaders but not in last_leader_authors
         let nvm_leaders: Vec<_> = current_leaders
@@ -262,25 +268,32 @@ impl Proposer {
             let enough_parents = !self.last_parents.is_empty();
             let timeout_cert_gathered = self.last_timeout_cert.round == self.round;
             let is_next_leader = self.committee.leader((self.round + 1) as usize) == self.name;
-            let no_vote_cert_gathered = self.last_no_vote_cert.len() > 0 && self.last_no_vote_cert[0].round == self.round;
+            let no_vote_cert_gathered =
+                self.last_no_vote_cert.len() > 0 && self.last_no_vote_cert[0].round == self.round;
             let enough_digests = self.payload_size >= self.header_size;
             let timer_expired = timer.is_elapsed();
 
             // TODO: This has to be fixed by sending timeout only once.
-            if timer_expired && !timeout_sent  {
+            if timer_expired && !timeout_sent {
                 warn!("Timer expired for round {}", self.round);
                 self.make_timeout_msg().await;
                 timeout_sent = true;
             }
 
-            if ((timer_expired && timeout_cert_gathered && (!is_next_leader || no_vote_cert_gathered)) || (enough_digests && advance)) && enough_parents {
+            if ((timer_expired
+                && timeout_cert_gathered
+                && (!is_next_leader || no_vote_cert_gathered))
+                || (enough_digests && advance))
+                && enough_parents
+            {
                 let nvm_leaders = self.nvm_leaders();
                 for pub_key in nvm_leaders {
                     self.make_no_vote_msg(pub_key).await;
                 }
 
-                if timer_expired && self.last_leader.is_none() && !is_next_leader {
-                    self.make_no_vote_msg(self.committee.leader((self.round) as usize).clone()).await;
+                if timer_expired && !check_last_leaders(&self.last_leaders) && !is_next_leader {
+                    self.make_no_vote_msg(self.committee.leader((self.round) as usize).clone())
+                        .await;
                 }
 
                 // Advance to the next round.
@@ -321,7 +334,7 @@ impl Proposer {
                     // we ignore this check and advance anyway.
                     // TODO: (1) Implement the wait for NVC if leader logic here
                     // (2) Also implement the wait for leader idea what is was there before
-                    advance = self.update_leader();
+                    advance = self.update_leaders();
                 }
                 Some(txns) = self.rx_workers.recv() => {
                     self.payload_size += txns.iter().map(|txn| txn.len()).sum::<usize>();
@@ -346,7 +359,7 @@ impl Proposer {
                     }
                 }
                 Some((no_vote_cert, round)) = self.rx_no_vote_cert.recv() => {
-                    
+
                     let last_nvc_round = if self.last_no_vote_cert.len() > 0 {
                         self.last_no_vote_cert[0].round
                     } else {
@@ -375,5 +388,20 @@ impl Proposer {
                 }
             }
         }
+    }
+}
+
+fn check_last_leaders(last_leaders: &Vec<Option<Certificate>>) -> bool {
+    let mut x = 0;
+    for leader in last_leaders {
+        if leader.is_some() {
+            x += 1;
+        }
+    }
+
+    if x == last_leaders.len() {
+        true
+    } else {
+        false
     }
 }

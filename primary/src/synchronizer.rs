@@ -5,7 +5,6 @@ use crate::messages::{Certificate, Header};
 use config::Committee;
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
-use std::collections::HashMap;
 use store::Store;
 use tokio::sync::mpsc::Sender;
 
@@ -118,10 +117,9 @@ impl Synchronizer {
     /// Check whether we have all the ancestors of the certificate. If we don't, send the certificate to
     /// the `CertificateWaiter` which will trigger re-processing once we have all the missing data.
     pub async fn deliver_certificate(&mut self, certificate: &Certificate) -> DagResult<bool> {
-        
         let key = certificate.header_id.to_vec();
-        
-        if let Some(head) =  self.store.read(key).await.unwrap() {
+
+        if let Some(head) = self.store.read(key).await.unwrap() {
             let header = Header::from(bincode::deserialize(&head).unwrap());
 
             for digest in &header.parents {
@@ -138,14 +136,12 @@ impl Synchronizer {
                 };
             }
             Ok(true)
-        }else {
-
+        } else {
             self.tx_certificate_waiter
-                        .send(certificate.clone())
-                        .await
-                        .expect("Failed to send sync certificate request");
+                .send(certificate.clone())
+                .await
+                .expect("Failed to send sync certificate request");
             Ok(false)
         }
-        
     }
 }

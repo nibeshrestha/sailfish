@@ -1,9 +1,9 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::messages::Header;
-use crate::primary::{PrimaryMessage, PrimaryWorkerMessage, Round};
+use crate::primary::{PrimaryMessage, Round};
 use bytes::Bytes;
-use config::{Committee, WorkerId};
+use config::Committee;
 use crypto::{Digest, PublicKey};
 use futures::future::try_join_all;
 use futures::stream::futures_unordered::FuturesUnordered;
@@ -106,15 +106,15 @@ impl HeaderWaiter {
         mut handler: Receiver<()>,
     ) -> DagResult<Option<Header>> {
         let waiting: Vec<_> = missing
-        .iter_mut()
-        .map(|(x, y)| y.notify_read(x.to_vec()))
-        .collect();
+            .iter_mut()
+            .map(|(x, y)| y.notify_read(x.to_vec()))
+            .collect();
         tokio::select! {
             result = try_join_all(waiting) => {
                 result.map(|_| Some(deliver)).map_err(DagError::from)
             }
             _ = handler.recv() => Ok(None),
-        }  
+        }
     }
 
     /// Main loop listening to the `Synchronizer` messages.
@@ -150,9 +150,9 @@ impl HeaderWaiter {
 
                         //     // Ensure we didn't already send a sync request for these parents.
                         //     // let mut requires_sync = HashMap::new();
-                        
+
                         //     self.payload_requests.entry(missing_header_id.clone()).or_insert(round);
-                            
+
                         //     let address = self.committee
                         //             .primary(&author)
                         //             .expect("Author of valid header is not in the committee")
@@ -161,7 +161,7 @@ impl HeaderWaiter {
                         //     let bytes = bincode::serialize(&message)
                         //         .expect("Failed to serialize batch sync request");
                         //     self.network.send(address, Bytes::from(bytes)).await;
-                            
+
                         // }
 
                         WaiterMessage::SyncParents(missing, header) => {

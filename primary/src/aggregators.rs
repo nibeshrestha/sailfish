@@ -1,10 +1,10 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
-use crate::messages::{Certificate, Header, Timeout, TimeoutCert, Vote, NoVoteMsg, NoVoteCert};
+use crate::messages::{Certificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, Vote};
+use blsttc::{PublicKeyShareG2, SignatureShareG1};
 use config::{Committee, Stake};
-use crypto::{aggregate_sign, combine_key_from_ids, remove_pubkeys, Digest, Hash, PublicKey, Signature};
-use blsttc::{PublicKeyShareG2,SignatureShareG1};
-use log::info;
+use crypto::{aggregate_sign, PublicKey, Signature};
+use log::{debug, info};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -30,45 +30,29 @@ impl VotesAggregator {
         }
     }
 
-    pub fn append(
-        &mut self,
-        vote: Vote,
-        committee: &Committee,
-    ) -> DagResult<Option<Certificate>> {
+    pub fn append(&mut self, vote: Vote, committee: &Committee) -> DagResult<Option<Certificate>> {
         let author = vote.author;
         let author_bls = committee.get_bls_public_g2(&author);
 
         // Ensure it is the first time this authority votes.
         ensure!(self.used.insert(author), DagError::AuthorityReuse(author));
-        // //to check if we have received vote from the current round leader
-        // let leader = committee.leader(vote.round as usize);
-        // if !self.used.contains(&leader){
-        //     return Ok(None);
-        // }
 
         self.votes.push((author_bls, vote.signature));
-        self.weight += committee.stake(&author);     
+        self.weight += committee.stake(&author);
 
         let id = self.sorted_keys.binary_search(&author_bls).unwrap();
         let chunk = id / 128;
         let bit = id % 128;
         //adding it to bitvec
-        self.pk_bit_vec[chunk] &= !(1 << bit);   
-    
+        self.pk_bit_vec[chunk] &= !(1 << bit);
+
         if self.votes.len() == 1 {
             self.agg_sign = vote.signature;
-
         } else if self.votes.len() >= 2 {
-
             let new_agg_sign = aggregate_sign(&self.agg_sign, &vote.signature);
             self.agg_sign = new_agg_sign;
         }
 
-        let leader = committee.leader(vote.round as usize);
-        if !self.used.contains(&leader){
-            return Ok(None);
-        }
-        
         if self.weight >= committee.quorum_threshold() {
             self.weight = 0; // Ensures quorum is only reached once.
 
@@ -85,7 +69,7 @@ impl VotesAggregator {
             // let agg_pk = remove_pubkeys(combined_key, ids, &self.sorted_keys);
             // // for checking aggregated sign
             // SignatureShareG1::verify_batch(&vote.digest().0, &agg_pk, &self.agg_sign).unwrap();
-            
+
             return Ok(Some(Certificate {
                 header_id: vote.id,
                 round: vote.round,
@@ -117,6 +101,7 @@ impl CertificatesAggregator {
         &mut self,
         certificate: Certificate,
         committee: &Committee,
+        leaders_per_round : usize,
     ) -> DagResult<Option<Vec<Certificate>>> {
         let origin = certificate.origin();
 
@@ -124,16 +109,24 @@ impl CertificatesAggregator {
         if !self.used.insert(origin) {
             return Ok(None);
         }
-        if self.weight >= committee.quorum_threshold() {
-            //self.weight = 0; // Ensures quorum is only reached once.
-            return Ok(Some(vec![certificate]));
+
+        let round = certificate.round;
+
+        self.certificates.push(certificate.clone());
+        self.weight += committee.stake(&origin);
+
+        let leaders = committee.leader_list(leaders_per_round, round as usize);
+        for leader in leaders.iter() {
+            if !self.used.contains(leader) {
+                return Ok(None);
+            }
         }
 
-        self.certificates.push(certificate);
-        self.weight += committee.stake(&origin);
+        debug!("Got all leader for round {}", certificate.round());
+
         if self.weight >= committee.quorum_threshold() {
             //self.weight = 0; // Ensures quorum is only reached once.
-            return Ok(Some(self.certificates.clone()));
+            return Ok(Some(self.certificates.drain(..).collect()));
         }
         Ok(None)
     }

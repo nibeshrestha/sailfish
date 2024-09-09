@@ -1,6 +1,6 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::primary::Round;
-use crypto::{CryptoError, Digest, PublicKey, BlsError};
+use crypto::{BlsError, CryptoError, Digest, PublicKey};
 use store::StoreError;
 use thiserror::Error;
 

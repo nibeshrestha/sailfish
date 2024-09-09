@@ -30,7 +30,7 @@ def local(ctx, debug=False):
         'batch_size': 50_000,  # bytes
         'tx_size': bench_params['tx_size'],
         'max_batch_delay': 200,  # ms
-        'leaders_per_round': 3
+        'leaders_per_round': 2
     }
     try:
         ret = LocalBench(bench_params, node_params).run(debug)
