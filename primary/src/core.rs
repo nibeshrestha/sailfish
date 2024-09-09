@@ -485,6 +485,7 @@ impl Core {
     #[async_recursion]
     async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
         debug!("Processing {:?}", certificate);
+        info!("Processing ceritificate {:?}", certificate.round);
 
         // Process the header embedded in the certificate if we haven't already voted for it (if we already
         // voted, it means we already processed it). Since this header got certified, we are sure that all
@@ -520,6 +521,7 @@ impl Core {
             .or_insert_with(|| Box::new(CertificatesAggregator::new()))
             .append(certificate.clone(), &self.committee)?
         {
+            info!("Sending parents to proposer {:?}", certificate.round());
             // Send it to the `Proposer`.
             self.tx_proposer
                 .send((parents, certificate.round()))
@@ -537,8 +539,8 @@ impl Core {
             );
         }
 
-        self.processing_headers.remove(&id);
-        self.processing_vote_aggregators.remove(&id);
+        // self.processing_headers.remove(&id);
+        // self.processing_vote_aggregators.remove(&id);
         Ok(())
     }
 

@@ -1,5 +1,5 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::{primary::PrimaryMessage};
+use crate::primary::PrimaryMessage;
 use bytes::Bytes;
 use config::Committee;
 use crypto::{Digest, PublicKey};

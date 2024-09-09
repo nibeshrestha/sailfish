@@ -4,6 +4,7 @@ use crate::messages::{Certificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, 
 use blsttc::{PublicKeyShareG2, SignatureShareG1};
 use config::{Committee, Stake};
 use crypto::{aggregate_sign, PublicKey, Signature};
+use log::info;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -29,21 +30,12 @@ impl VotesAggregator {
         }
     }
 
-    pub fn append(
-        &mut self,
-        vote: Vote,
-        committee: &Committee,
-    ) -> DagResult<Option<Certificate>> {
+    pub fn append(&mut self, vote: Vote, committee: &Committee) -> DagResult<Option<Certificate>> {
         let author = vote.author;
         let author_bls = committee.get_bls_public_g2(&author);
 
         // Ensure it is the first time this authority votes.
         ensure!(self.used.insert(author), DagError::AuthorityReuse(author));
-        // //to check if we have received vote from the current round leader
-        // let leader = committee.leader(vote.round as usize);
-        // if !self.used.contains(&leader){
-        //     return Ok(None);
-        // }
 
         self.votes.push((author_bls, vote.signature));
         self.weight += committee.stake(&author);
@@ -59,11 +51,6 @@ impl VotesAggregator {
         } else if self.votes.len() >= 2 {
             let new_agg_sign = aggregate_sign(&self.agg_sign, &vote.signature);
             self.agg_sign = new_agg_sign;
-        }
-
-        let leader = committee.leader(vote.round as usize);
-        if !self.used.contains(&leader) {
-            return Ok(None);
         }
 
         if self.weight >= committee.quorum_threshold() {
@@ -107,11 +94,18 @@ impl CertificatesAggregator {
         if !self.used.insert(origin) {
             return Ok(None);
         }
+        let round = certificate.round;
 
         self.certificates.push(certificate);
         self.weight += committee.stake(&origin);
+
+        let leader = committee.leader(round as usize);
+        if !self.used.contains(&leader) {
+            return Ok(None);
+        }
+
         if self.weight >= committee.quorum_threshold() {
-            //self.weight = 0; // Ensures quorum is only reached once.
+            // self.weight = 0; // Ensures quorum is only reached once.
             return Ok(Some(self.certificates.drain(..).collect()));
         }
         Ok(None)
