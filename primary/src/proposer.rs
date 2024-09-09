@@ -164,12 +164,12 @@ impl Proposer {
         };
 
         let mut payload = Vec::new();
-        if self.consensus_only{
-            payload = vec![vec![0u8;self.tx_size];(self.header_size/self.tx_size)];
-        }else{
+        if self.consensus_only {
+            payload = vec![vec![0u8; self.tx_size]; (self.header_size / self.tx_size)];
+        } else {
             payload = self.txns.drain(..limit).collect();
         }
-        
+
         let header = Header::new(
             self.name,
             self.round,
@@ -180,7 +180,7 @@ impl Proposer {
             &mut self.signature_service,
         )
         .await;
-    
+
         // debug!("Created {:?}", header.id);
 
         #[cfg(feature = "benchmark")]
@@ -194,12 +194,12 @@ impl Proposer {
 
             if !self.consensus_only {
                 let tx_ids: Vec<_> = header
-                .payload
-                .clone()
-                .iter()
-                .filter(|tx| tx[0] == 0u8 && tx.len() > 8)
-                .filter_map(|tx| tx[1..9].try_into().ok())
-                .collect();
+                    .payload
+                    .clone()
+                    .iter()
+                    .filter(|tx| tx[0] == 0u8 && tx.len() > 8)
+                    .filter_map(|tx| tx[1..9].try_into().ok())
+                    .collect();
                 for id in tx_ids {
                     info!(
                         "Header {:?} contains sample tx {}",
@@ -208,17 +208,15 @@ impl Proposer {
                     );
                 }
             }
-            
+
             // NOTE: This log entry is used to compute performance.
         }
 
         // Send the new header to the `Core` that will broadcast and process it.
         self.tx_core
-        .send(header)
-        .await
-        .expect("Failed to send header");
-        
-
+            .send(header)
+            .await
+            .expect("Failed to send header");
     }
 
     /// Update the last leader.

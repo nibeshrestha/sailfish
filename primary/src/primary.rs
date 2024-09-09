@@ -149,7 +149,6 @@ impl Primary {
                 tx_our_digests,
             );
         }
-        
 
         //The `Synchronizer` provides auxiliary methods helping to `Core` to sync.
         let synchronizer = Synchronizer::new(

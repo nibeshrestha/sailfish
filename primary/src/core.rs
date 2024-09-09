@@ -538,8 +538,8 @@ impl Core {
             );
         }
 
-        self.processing_headers.remove(&id);
-        self.processing_vote_aggregators.remove(&id);
+        // self.processing_headers.remove(&id);
+        // self.processing_vote_aggregators.remove(&id);
         Ok(())
     }
 

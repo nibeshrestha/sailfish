@@ -105,11 +105,10 @@ impl Import for Parameters {}
 
 impl Parameters {
     pub fn log(&self) {
-
         if self.consensus_only {
             info!("Running consensus in isolation");
         }
-        
+
         info!("Header size set to {} B", self.header_size);
         info!("Max header delay set to {} ms", self.max_header_delay);
         info!("Garbage collection depth set to {} rounds", self.gc_depth);
