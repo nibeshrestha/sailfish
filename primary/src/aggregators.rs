@@ -101,7 +101,7 @@ impl CertificatesAggregator {
         &mut self,
         certificate: Certificate,
         committee: &Committee,
-        leaders_per_round : usize,
+        leaders_per_round: usize,
     ) -> DagResult<Option<Vec<Certificate>>> {
         let origin = certificate.origin();
 

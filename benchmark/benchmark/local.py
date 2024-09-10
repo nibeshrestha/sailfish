@@ -35,8 +35,9 @@ class LocalBench:
         except subprocess.SubprocessError as e:
             raise BenchError('Failed to kill testbed', e)
 
-    def run(self, debug=False):
+    def run(self, debug=False, consensus_only=False):
         assert isinstance(debug, bool)
+        assert isinstance(consensus_only, bool)
         Print.heading('Starting local benchmark')
 
         # Kill any previous testbed.
@@ -82,20 +83,22 @@ class LocalBench:
 
             self.node_parameters.print(PathMaker.parameters_file())
 
-            # Run the clients (they will wait for the nodes to be ready).
-            workers_addresses = committee.workers_addresses(self.faults)
-            rate_share = ceil(rate / committee.workers())
-            for i, addresses in enumerate(workers_addresses):
-                for (id, address) in addresses:
-                    cmd = CommandMaker.run_client(
-                        address,
-                        self.tx_size,
-                        self.burst,
-                        rate_share,
-                        [x for y in workers_addresses for _, x in y]
-                    )
-                    log_file = PathMaker.client_log_file(i, id)
-                    self._background_run(cmd, log_file)
+
+            if not consensus_only:
+                # Run the clients (they will wait for the nodes to be ready).
+                workers_addresses = committee.workers_addresses(self.faults)
+                rate_share = ceil(rate / committee.workers())
+                for i, addresses in enumerate(workers_addresses):
+                    for (id, address) in addresses:
+                        cmd = CommandMaker.run_client(
+                            address,
+                            self.tx_size,
+                            self.burst,
+                            rate_share,
+                            [x for y in workers_addresses for _, x in y]
+                        )
+                        log_file = PathMaker.client_log_file(i, id)
+                        self._background_run(cmd, log_file)
 
             # Run the primaries (except the faulty ones).
             for i, address in enumerate(committee.primary_addresses(self.faults)):
@@ -132,7 +135,7 @@ class LocalBench:
 
             # Parse logs and return the parser.
             Print.info('Parsing logs...')
-            return LogParser.process(PathMaker.logs_path(), self.bench_parameters.burst, faults=self.faults, )
+            return LogParser.process(PathMaker.logs_path(), self.bench_parameters.burst, faults=self.faults, consensus_only=consensus_only)
 
         except (subprocess.SubprocessError, ParseError) as e:
             self._kill_nodes()

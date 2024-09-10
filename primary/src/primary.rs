@@ -143,13 +143,15 @@ impl Primary {
         //     name, address
         // );
 
-        Worker::spawn(
-            name,
-            0,
-            committee.clone(),
-            parameters.clone(),
-            tx_our_digests,
-        );
+        if !parameters.consensus_only {
+            Worker::spawn(
+                name,
+                0,
+                committee.clone(),
+                parameters.clone(),
+                tx_our_digests,
+            );
+        }
 
         //The `Synchronizer` provides auxiliary methods helping to `Core` to sync.
         let synchronizer = Synchronizer::new(
@@ -231,6 +233,7 @@ impl Primary {
             parameters.batch_size,
             parameters.tx_size,
             parameters.max_header_delay,
+            parameters.consensus_only,
             /* rx_core */ rx_parents,
             /* rx_workers */ rx_our_digests,
             /* tx_core */ tx_headers,

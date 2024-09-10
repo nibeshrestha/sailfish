@@ -10,7 +10,7 @@ from benchmark.remote import Bench, BenchError
 
 
 @task
-def local(ctx, debug=False):
+def local(ctx, debug=False, consensus_only=True):
     ''' Run benchmarks on localhost '''
     bench_params = {
         'faults': 0,
@@ -22,18 +22,19 @@ def local(ctx, debug=False):
         "burst" : 50
     }
     node_params = {
-        'header_size': 512_000,  # bytes
+        'consensus_only': consensus_only,
+        'header_size': 50_000,  # bytes
         'max_header_delay': 1_000,  # ms
         'gc_depth': 50,  # rounds
         'sync_retry_delay': 10_000,  # ms
         'sync_retry_nodes': 3,  # number of nodes
-        'batch_size': 50_000,  # bytes
+        'batch_size': 50_000,  # bytescd
         'tx_size': bench_params['tx_size'],
         'max_batch_delay': 200,  # ms
-        'leaders_per_round': 2
+        'leaders_per_round': 3
     }
     try:
-        ret = LocalBench(bench_params, node_params).run(debug)
+        ret = LocalBench(bench_params, node_params).run(debug, consensus_only)
         print(ret.result())
     except BenchError as e:
         Print.error(e)
@@ -94,7 +95,7 @@ def install(ctx):
 
 
 @task
-def remote(ctx, burst = 50, debug=False):
+def remote(ctx, burst = 50, debug=False, consensus_only=False):
     ''' Run benchmarks on GCP '''
     bench_params = {
         'faults': 0,
@@ -109,7 +110,7 @@ def remote(ctx, burst = 50, debug=False):
     } 
 
     nodes = bench_params['nodes']
-    rate =  1000 * nodes
+    rate =  1000 * nodes * 20
     bench_params['rate'] = [rate]
 
     node_params = {
@@ -124,7 +125,7 @@ def remote(ctx, burst = 50, debug=False):
         'leaders_per_round': 3
     }
     try:
-        Bench(ctx).run(bench_params, node_params, debug)
+        Bench(ctx).run(bench_params, node_params, debug, consensus_only)
     except BenchError as e:
         Print.error(e)
 

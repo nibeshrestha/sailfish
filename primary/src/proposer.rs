@@ -31,6 +31,7 @@ pub struct Proposer {
     tx_size: usize,
     /// The maximum delay to wait for batches' digests.
     max_header_delay: u64,
+    consensus_only: bool,
 
     /// Receives the parents to include in the next header (along with their round number).
     rx_core: Receiver<(Vec<Certificate>, Round)>,
@@ -75,6 +76,7 @@ impl Proposer {
         batch_size: usize,
         tx_size: usize,
         max_header_delay: u64,
+        consensus_only: bool,
         rx_core: Receiver<(Vec<Certificate>, Round)>,
         rx_workers: Receiver<Vec<Transaction>>,
         tx_core: Sender<Header>,
@@ -94,6 +96,7 @@ impl Proposer {
                 batch_size,
                 tx_size,
                 max_header_delay,
+                consensus_only,
                 rx_core,
                 rx_workers,
                 tx_core,
@@ -165,10 +168,17 @@ impl Proposer {
             self.header_size / self.tx_size
         };
 
+        let mut payload = Vec::new();
+        if self.consensus_only {
+            payload = vec![vec![0u8; self.tx_size]; (self.header_size / self.tx_size)];
+        } else {
+            payload = self.txns.drain(..limit).collect();
+        }
+
         let header = Header::new(
             self.name,
             self.round,
-            self.txns.drain(..limit).collect(),
+            payload,
             self.last_parents.drain(..).map(|x| x.header_id).collect(),
             timeout_cert,
             no_vote_certs,
@@ -187,19 +197,21 @@ impl Proposer {
                 header.payload.len() * self.tx_size
             );
 
-            let tx_ids: Vec<_> = header
-                .payload
-                .clone()
-                .iter()
-                .filter(|tx| tx[0] == 0u8 && tx.len() > 8)
-                .filter_map(|tx| tx[1..9].try_into().ok())
-                .collect();
-            for id in tx_ids {
-                info!(
-                    "Header {:?} contains sample tx {}",
-                    header.id,
-                    u64::from_be_bytes(id)
-                );
+            if !self.consensus_only {
+                let tx_ids: Vec<_> = header
+                    .payload
+                    .clone()
+                    .iter()
+                    .filter(|tx| tx[0] == 0u8 && tx.len() > 8)
+                    .filter_map(|tx| tx[1..9].try_into().ok())
+                    .collect();
+                for id in tx_ids {
+                    info!(
+                        "Header {:?} contains sample tx {}",
+                        header.id,
+                        u64::from_be_bytes(id)
+                    );
+                }
             }
             // NOTE: This log entry is used to compute performance.
         }
@@ -283,7 +295,7 @@ impl Proposer {
             if ((timer_expired
                 && timeout_cert_gathered
                 && (!is_next_leader || no_vote_cert_gathered))
-                || (enough_digests && advance))
+                || ((enough_digests || self.consensus_only) && advance))
                 && enough_parents
             {
                 let nvm_leaders = self.nvm_leaders();
