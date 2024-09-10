@@ -6,6 +6,7 @@ use log::{debug, info, log_enabled, warn};
 use primary::{Certificate, Header, Round};
 use std::cmp::max;
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 #[cfg(test)]
@@ -14,7 +15,7 @@ pub mod consensus_tests;
 
 /// The representation of the DAG in memory.
 type Dag = HashMap<Round, HashMap<PublicKey, (Digest, Certificate)>>;
-type ParentInfo = HashMap<Digest, BTreeSet<Digest>>;
+type ParentInfo = HashMap<Arc<Digest>, BTreeSet<Digest>>;
 /// The state that needs to be persisted for crash-recovery.
 struct State {
     /// The last committed round.
@@ -83,7 +84,7 @@ pub struct Consensus {
     /// The genesis certificates.
     genesis: Vec<Certificate>,
     /// The stake vote received by the leader of a round.
-    stake_vote: HashMap<Round, u32>,
+    stake_vote: HashMap<(Round,Arc<Digest>), u32>,
     ///The total numbers of leaders in each round
     leaders_per_round: usize,
 }
@@ -126,7 +127,8 @@ impl Consensus {
                 Some(header) = self.rx_primary_header.recv() => {
                     debug!("Processing {:?}", header);
 
-                    state.parent_info.insert(header.id.clone(), header.parents.clone());
+                    let header_id = Arc::new(header.id.clone());
+                    state.parent_info.insert(header_id.clone(), header.parents.clone());
                     // Try to order the dag to commit. Start from the previous round.
                     let r = header.round - 1;
 
@@ -146,10 +148,10 @@ impl Consensus {
                         };
 
                         if header.parents.contains(leader_digest) {
-                            *self.stake_vote.entry(header.round).or_insert(0) += self.committee.stake(&header.author);
+                            *self.stake_vote.entry((header.round, header_id.clone())).or_insert(0) += self.committee.stake(&header.author);
                         }
 
-                        let current_stake = self.stake_vote.get(&header.round);
+                        let current_stake = self.stake_vote.get(&(header.round,header_id.clone()));
                         let current_stake_value = *current_stake.unwrap_or(&0);
 
                         // Commit if we have QT
