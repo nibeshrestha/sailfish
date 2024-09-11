@@ -84,7 +84,7 @@ pub struct Consensus {
     /// The genesis certificates.
     genesis: Vec<Certificate>,
     /// The stake vote received by the leader of a round.
-    stake_vote: HashMap<(Round, Arc<Digest>), u32>,
+    stake_vote: HashMap<(Round, Digest), u32>,
     ///The total numbers of leaders in each round
     leaders_per_round: usize,
 }
@@ -149,10 +149,10 @@ impl Consensus {
                         };
 
                         if header.parents.contains(leader_digest) {
-                            *self.stake_vote.entry((header.round, header_id.clone())).or_insert(0) += self.committee.stake(&header.author);
+                            *self.stake_vote.entry((leader_round, leader_digest.clone())).or_insert(0) += self.committee.stake(&header.author);
                         }
 
-                        let current_stake = self.stake_vote.get(&(header.round, header_id.clone()));
+                        let current_stake = self.stake_vote.get(&(leader_round, leader_digest.clone()));
                         let current_stake_value = *current_stake.unwrap_or(&0);
 
                         // Commit if we have QT
@@ -169,13 +169,6 @@ impl Consensus {
 
                                     // Add the certificate to the sequence.
                                     sequence.push(x);
-                                }
-                            }
-
-                            // Log the latest committed round of every authority (for debug).
-                            if log_enabled!(log::Level::Debug) {
-                                for (name, round) in &state.last_committed {
-                                    debug!("Latest commit of {}: Round {} with header", name, round);
                                 }
                             }
 
@@ -208,8 +201,6 @@ impl Consensus {
                             break;
                         }
                     }
-
-
                 }
                 // Listen to incoming certificates.
                 Some(certificate) = self.rx_primary.recv() => {
@@ -259,7 +250,7 @@ impl Consensus {
                         // If it is the case, we can commit the leader. But first, we need to recursively go back to
                         // the last committed leader, and commit all preceding leaders in the right order. Committing
                         // a leader block means committing all its dependencies.
-                        if stake < self.committee.validity_threshold() {
+                        if stake < self.committee.quorum_threshold() {
                             debug!("Leader {:?} does not have enough support", leader);
                             break;
                         }
@@ -278,18 +269,10 @@ impl Consensus {
                             }
                         }
 
-                        // Log the latest committed round of every authority (for debug).
-                        if log_enabled!(log::Level::Debug) {
-                            for (name, round) in &state.last_committed {
-                                debug!("Latest commit of {}: Round {}", name, round);
-                            }
-                        }
-
                         // Output the sequence in the right order.
                         for certificate in sequence {
                             #[cfg(not(feature = "benchmark"))]
                             info!("Committed {}", certificate.header_id);
-
 
                             if certificate.round == leader_round {
                                 info!("Committed {:?} Leader", certificate.header_id);
