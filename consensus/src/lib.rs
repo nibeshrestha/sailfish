@@ -15,7 +15,7 @@ pub mod consensus_tests;
 
 /// The representation of the DAG in memory.
 type Dag = HashMap<Round, HashMap<PublicKey, (Digest, Certificate)>>;
-type ParentInfo = HashMap<Arc<Digest>, BTreeSet<Digest>>;
+type ParentInfo = HashMap<Digest, BTreeSet<Digest>>;
 /// The state that needs to be persisted for crash-recovery.
 struct State {
     /// The last committed round.
@@ -127,9 +127,7 @@ impl Consensus {
                 Some(header) = self.rx_primary_header.recv() => {
                     debug!("Processing {:?}", header);
 
-                    let header_id = Arc::new(header.id.clone());
-
-                    state.parent_info.insert(header_id.clone(), header.parents.clone());
+                    state.parent_info.insert(header.id.clone(), header.parents.clone());
                     // Try to order the dag to commit. Start from the previous round.
                     let r = header.round - 1;
 
