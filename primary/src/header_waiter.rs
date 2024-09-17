@@ -1,7 +1,7 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::messages::Header;
-use crate::primary::{PrimaryMessage, Round};
+use crate::primary::{HeaderMessage, PrimaryMessage, Round};
 use bytes::Bytes;
 use config::Committee;
 use crypto::{Digest, PublicKey};
@@ -10,7 +10,7 @@ use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
 use log::{debug, error};
 use network::SimpleSender;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -26,7 +26,7 @@ const TIMER_RESOLUTION: u64 = 1_000;
 #[derive(Debug)]
 pub enum WaiterMessage {
     // SyncPayload(Digest, Header),
-    SyncParents(Vec<Digest>, Header),
+    SyncParents(Vec<Digest>, HeaderMessage),
 }
 
 /// Waits for missing parent certificates and batches' digests.
@@ -49,7 +49,7 @@ pub struct HeaderWaiter {
     /// Receives sync commands from the `Synchronizer`.
     rx_synchronizer: Receiver<WaiterMessage>,
     /// Loops back to the core headers for which we got all parents and batches.
-    tx_core: Sender<Header>,
+    tx_core: Sender<HeaderMessage>,
 
     /// Network driver allowing to send messages.
     network: SimpleSender,
@@ -75,7 +75,7 @@ impl HeaderWaiter {
         sync_retry_delay: u64,
         sync_retry_nodes: usize,
         rx_synchronizer: Receiver<WaiterMessage>,
-        tx_core: Sender<Header>,
+        tx_core: Sender<HeaderMessage>,
     ) {
         tokio::spawn(async move {
             Self {
@@ -102,9 +102,9 @@ impl HeaderWaiter {
     /// and then delivers the specified header.
     async fn waiter(
         mut missing: Vec<(Vec<u8>, Store)>,
-        deliver: Header,
+        deliver: HeaderMessage,
         mut handler: Receiver<()>,
-    ) -> DagResult<Option<Header>> {
+    ) -> DagResult<Option<HeaderMessage>> {
         let waiting: Vec<_> = missing
             .iter_mut()
             .map(|(x, y)| y.notify_read(x.to_vec()))
@@ -164,14 +164,27 @@ impl HeaderWaiter {
 
                         // }
 
-                        WaiterMessage::SyncParents(missing, header) => {
-                            debug!("Synching the parents of {}", header);
-                            let header_id = header.id.clone();
-                            let round = header.round;
-                            let author = header.author;
+                        WaiterMessage::SyncParents(missing, header_msg) => {
+                            let id : Digest;
+                            let round : Round;
+                            let author : PublicKey;
+                            match header_msg.clone() {
+                                HeaderMessage::Header(header) => {
+                                    id = header.id.clone();
+                                    round = header.round;
+                                    author = header.author;
+                                }
+                                HeaderMessage::HeaderInfo(header_info) => {
+                                    id = header_info.id.clone();
+                                    round = header_info.round;
+                                    author = header_info.author;
+                                }
+                            }
+                            debug!("Synching the parents of {}", id);
+
 
                             // Ensure we sync only once per header.
-                            if self.pending.contains_key(&header_id) {
+                            if self.pending.contains_key(&id) {
                                 continue;
                             }
 
@@ -183,8 +196,8 @@ impl HeaderWaiter {
                                 .map(|x| (x.to_vec(), self.store.clone()))
                                 .collect();
                             let (tx_cancel, rx_cancel) = channel(1);
-                            self.pending.insert(header_id, (round, tx_cancel));
-                            let fut = Self::waiter(wait_for, header, rx_cancel);
+                            self.pending.insert(id, (round, tx_cancel));
+                            let fut = Self::waiter(wait_for, header_msg, rx_cancel);
                             waiting.push(fut);
 
                             // Ensure we didn't already sent a sync request for these parents.
@@ -215,15 +228,28 @@ impl HeaderWaiter {
                 },
 
                 Some(result) = waiting.next() => match result {
-                    Ok(Some(header)) => {
-                        let _ = self.pending.remove(&header.id);
+                    Ok(Some(header_msg)) => {
+                        let id : Digest;
+                        let parents : BTreeSet<Digest>;
+                        match header_msg.clone() {
+                            HeaderMessage::Header(header) => {
+                                id = header.id.clone();
+                                parents = header.parents.clone();
+                            }
+                            HeaderMessage::HeaderInfo(header_info) => {
+                                id = header_info.id.clone();
+                                parents = header_info.parents.clone();
+                            }
+                        }
+                        let _ = self.pending.remove(&id);
                         // for x in &header.payload {
                         //     let _ = self.batch_requests.remove(x);
                         // }
-                        for x in &header.parents {
+                        for x in &parents {
                             let _ = self.parent_requests.remove(x);
                         }
-                        self.tx_core.send(header).await.expect("Failed to send header");
+
+                        self.tx_core.send(header_msg).await.expect("Failed to send header");
                     },
                     Ok(None) => {
                         // This request has been canceled.

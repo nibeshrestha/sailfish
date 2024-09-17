@@ -3,7 +3,7 @@ use config::{Committee, Stake};
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
 use log::{debug, info, log_enabled, warn};
-use primary::{Certificate, Header, Round};
+use primary::{Certificate, Header, HeaderMessage, Round};
 use std::cmp::max;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
@@ -75,7 +75,7 @@ pub struct Consensus {
     /// if it already sent us its whole history.
     rx_primary: Receiver<Certificate>,
     /// Receives new headers from the primary.
-    rx_primary_header: Receiver<Header>,
+    rx_primary_header_msg: Receiver<HeaderMessage>,
     /// Outputs the sequence of ordered certificates to the primary (for cleanup and feedback).
     tx_primary: Sender<Certificate>,
     /// Outputs the sequence of ordered certificates to the application layer.
@@ -84,7 +84,7 @@ pub struct Consensus {
     /// The genesis certificates.
     genesis: Vec<Certificate>,
     /// The stake vote received by the leader of a round.
-    stake_vote: HashMap<(Round,Digest), u32>,
+    stake_vote: HashMap<(Round, Digest), u32>,
     ///The total numbers of leaders in each round
     leaders_per_round: usize,
 }
@@ -94,7 +94,7 @@ impl Consensus {
         committee: Committee,
         gc_depth: Round,
         rx_primary: Receiver<Certificate>,
-        rx_primary_header: Receiver<Header>,
+        rx_primary_header_msg: Receiver<HeaderMessage>,
         tx_primary: Sender<Certificate>,
         tx_output: Sender<Certificate>,
         leaders_per_round: usize,
@@ -104,7 +104,7 @@ impl Consensus {
                 committee: committee.clone(),
                 gc_depth,
                 rx_primary,
-                rx_primary_header,
+                rx_primary_header_msg,
                 tx_primary,
                 tx_output,
                 genesis: Certificate::genesis(&committee),
@@ -124,13 +124,35 @@ impl Consensus {
         loop {
             tokio::select! {
                 // Listen to incoming headers.
-                Some(header) = self.rx_primary_header.recv() => {
-                    debug!("Processing {:?}", header);
+                Some(header_msg) = self.rx_primary_header_msg.recv() => {
 
+                    let h_id : Digest;
+                    let h_parents: BTreeSet<Digest>;
+                    let h_round: Round;
+                    let h_author: PublicKey;
 
-                    state.parent_info.insert(header.id.clone(), header.parents.clone());
+                    match header_msg {
+                        HeaderMessage::Header(header) => {
+                            debug!("Processing header {:?}", header);
+                            h_id = header.id.clone();
+                            h_parents = header.parents.clone();
+                            h_round = header.round;
+                            h_author = header.author;
+
+                        }
+                        HeaderMessage::HeaderInfo(header_info) => {
+                            debug!("Processing header info {:?}", header_info);
+                            h_id = header_info.id.clone();
+                            h_parents = header_info.parents.clone();
+                            h_round = header_info.round;
+                            h_author = header_info.author;
+
+                        }
+                    }
+
+                    state.parent_info.insert(h_id.clone(), h_parents.clone());
                     // Try to order the dag to commit. Start from the previous round.
-                    let r = header.round - 1;
+                    let r = h_round - 1;
 
                     // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
                     let leader_round = r;
@@ -138,8 +160,8 @@ impl Consensus {
                         continue;
                     }
 
-                     //iterate thorugh all the leaders of the round
-                     for i in 0..self.leaders_per_round {
+                    //iterate thorugh all the leaders of the round
+                    for i in 0..self.leaders_per_round {
 
                         let leader_and_digest_list : Vec<_> = self.leader_list(self.leaders_per_round, leader_round, &state.dag);
                         let (leader_digest, leader) = match leader_and_digest_list[i] {
@@ -147,8 +169,8 @@ impl Consensus {
                             None => break,
                         };
 
-                        if header.parents.contains(leader_digest) {
-                            *self.stake_vote.entry((leader.round, leader_digest.clone())).or_insert(0) += self.committee.stake(&header.author);
+                        if h_parents.contains(leader_digest) {
+                            *self.stake_vote.entry((leader.round, leader_digest.clone())).or_insert(0) += self.committee.stake(&h_author);
                         }
 
                         let current_stake = self.stake_vote.get(&(leader.round, leader_digest.clone()));
@@ -202,8 +224,8 @@ impl Consensus {
                         }
                     }
 
-
                 }
+
                 // Listen to incoming certificates.
                 Some(certificate) = self.rx_primary.recv() => {
                     debug!("Processing {:?}", certificate);

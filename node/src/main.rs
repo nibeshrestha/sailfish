@@ -2,6 +2,7 @@
 use anyhow::{Context, Result};
 use clap::{crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
 use config::BlsKeyPair;
+use config::Clan;
 use config::Export as _;
 use config::Import as _;
 use config::{Committee, KeyPair, Parameters};
@@ -32,7 +33,8 @@ async fn main() -> Result<()> {
                 .about("Print a fresh bls key pair to file")
                 .arg_from_usage("--nodes=<INT> 'total number of nodes in network'")
                 .arg_from_usage("--threshold=<INT>  'threshold number of keys require to verify'")
-                .arg_from_usage("--path=<String>  'Path for storing blskeys'"),
+                .arg_from_usage("--path=<String>  'Path for storing blskeys'")
+                .arg_from_usage("--node_id_to_start=<INT> 'gives node id to save files'"),
         )
         .subcommand(
             SubCommand::with_name("run")
@@ -85,6 +87,11 @@ async fn main() -> Result<()> {
                 .unwrap()
                 .parse::<String>()
                 .unwrap(),
+            sub_matches
+                .value_of("node_id_to_start")
+                .unwrap()
+                .parse::<usize>()
+                .unwrap(),
         ),
         ("run", Some(sub_matches)) => run(sub_matches).await?,
         _ => unreachable!(),
@@ -102,15 +109,21 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
 
     // Read the committee and node's keypair from file.
     let ed_keypair = KeyPair::import(ed_key_file).context("Failed to load the node's keypair")?;
+    let name = ed_keypair.name;
     let bls_keypair =
         BlsKeyPair::import(bls_key_file).context("Failed to load the node's keypair")?;
+
+    //fetching committee
     let committee =
         Committee::import(committee_file).context("Failed to load the committee information")?;
 
+    //fetching clan
+    let my_clan_id = committee.authorities.get(&name).unwrap().clan_id;
+    let clan = Clan::create_clan_from_committee(&committee, my_clan_id)
+        .context("Failed to load the clan information")?;
+
     let mut sorted_keys = committee.get_bls_public_keys();
     sorted_keys.sort();
-
-    info!("{}", sorted_keys.len());
 
     let combined_pubkey = combine_keys(&sorted_keys);
 
@@ -134,40 +147,33 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
         ("primary", _) => {
             let (tx_new_certificates, rx_new_certificates) = channel(CHANNEL_CAPACITY);
             let (tx_feedback, rx_feedback) = channel(CHANNEL_CAPACITY);
-            let (tx_consensus_header, rx_consensus_header) = channel(CHANNEL_CAPACITY);
+            let (tx_consensus_header_msg, rx_consensus_header_msg) = channel(CHANNEL_CAPACITY);
+
             Primary::spawn(
                 ed_keypair,
                 bls_keypair,
                 committee.clone(),
+                clan.clone(),
                 sorted_keys,
                 combined_pubkey,
                 parameters.clone(),
                 store,
                 /* tx_consensus */ tx_new_certificates,
                 /* rx_consensus */ rx_feedback,
-                tx_consensus_header,
+                tx_consensus_header_msg,
                 parameters.leaders_per_round,
             );
             Consensus::spawn(
                 committee,
                 parameters.gc_depth,
                 /* rx_primary */ rx_new_certificates,
-                rx_consensus_header,
+                rx_consensus_header_msg,
                 /* tx_primary */ tx_feedback,
                 tx_output,
                 parameters.leaders_per_round,
             );
         }
 
-        // // Spawn a single worker.
-        // ("worker", Some(sub_matches)) => {
-        //     let id = sub_matches
-        //         .value_of("id")
-        //         .unwrap()
-        //         .parse::<WorkerId>()
-        //         .context("The worker id must be a positive integer")?;
-        //     Worker::spawn(ed_keypair.name, id, committee, parameters, store);
-        // }
         _ => unreachable!(),
     }
 

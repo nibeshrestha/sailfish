@@ -2,7 +2,7 @@
 use crate::error::{DagError, DagResult};
 use crate::messages::{Certificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, Vote};
 use blsttc::{PublicKeyShareG2, SignatureShareG1};
-use config::{Committee, Stake};
+use config::{Clan, Committee, Stake};
 use crypto::{aggregate_sign, PublicKey, Signature};
 use log::{debug, info};
 use std::collections::HashSet;
@@ -10,7 +10,8 @@ use std::sync::Arc;
 
 /// Aggregates votes for a particular header into a certificate.
 pub struct VotesAggregator {
-    weight: Stake,
+    committee_weight: Stake,
+    clan_weight: Stake,
     votes: Vec<(PublicKeyShareG2, SignatureShareG1)>,
     used: HashSet<PublicKey>,
     agg_sign: SignatureShareG1,
@@ -21,7 +22,8 @@ pub struct VotesAggregator {
 impl VotesAggregator {
     pub fn new(sorted_keys: Arc<Vec<PublicKeyShareG2>>, total_nodes: usize) -> Self {
         Self {
-            weight: 0,
+            committee_weight: 0,
+            clan_weight: 0,
             votes: Vec::new(),
             used: HashSet::new(),
             agg_sign: SignatureShareG1::default(),
@@ -30,7 +32,12 @@ impl VotesAggregator {
         }
     }
 
-    pub fn append(&mut self, vote: Vote, committee: &Committee) -> DagResult<Option<Certificate>> {
+    pub fn append(
+        &mut self,
+        vote: Vote,
+        committee: &Committee,
+        clan: &Clan,
+    ) -> DagResult<Option<Certificate>> {
         let author = vote.author;
         let author_bls = committee.get_bls_public_g2(&author);
 
@@ -38,7 +45,11 @@ impl VotesAggregator {
         ensure!(self.used.insert(author), DagError::AuthorityReuse(author));
 
         self.votes.push((author_bls, vote.signature));
-        self.weight += committee.stake(&author);
+        self.committee_weight += committee.stake(&author);
+
+        if clan.is_member(&author) {
+            self.clan_weight += clan.stake(&author);
+        }
 
         let id = self.sorted_keys.binary_search(&author_bls).unwrap();
         let chunk = id / 128;
@@ -53,8 +64,10 @@ impl VotesAggregator {
             self.agg_sign = new_agg_sign;
         }
 
-        if self.weight >= committee.quorum_threshold() {
-            self.weight = 0; // Ensures quorum is only reached once.
+        if self.committee_weight >= committee.quorum_threshold()
+            && self.clan_weight >= clan.validity_threshold()
+        {
+            self.committee_weight = 0; // Ensures quorum is only reached once.
 
             // let mut ids = Vec::new();
             // for idx in 0..committee.size() {

@@ -3,7 +3,7 @@ import subprocess
 from math import ceil
 from os.path import basename, splitext
 from time import sleep
-
+import json
 from benchmark.commands import CommandMaker
 from benchmark.config import EdKey,BlsKey, LocalCommittee, NodeParameters, BenchParameters, ConfigError
 from benchmark.logs import LogParser, ParseError
@@ -46,6 +46,8 @@ class LocalBench:
         try:
             Print.info('Setting up testbed...')
             nodes, rate = self.nodes[0], self.rate[0]
+            clan_info =  self.bench_parameters.clan_info
+            total_clan = len(clan_info)
 
             # Cleanup all files.
             cmd = f'{CommandMaker.clean_logs()} ; {CommandMaker.cleanup()}'
@@ -60,8 +62,13 @@ class LocalBench:
             cmd = CommandMaker.alias_binaries(PathMaker.binary_path())
             subprocess.run([cmd], shell=True)
 
-            cmd = CommandMaker.generate_bls_keys(nodes, 2, PathMaker.bls_file_default_path()).split()
-            subprocess.run(cmd, check=True)
+            node_id=0
+            for i in range(0,len(clan_info)):
+                clan_size = clan_info[i][0]
+                threshold = clan_info[i][1]
+                cmd = CommandMaker.generate_bls_keys(clan_size,threshold,PathMaker.bls_file_default_path(),node_id).split()
+                subprocess.run(cmd, check=True)
+                node_id+=clan_size
 
             # Generate configuration files.
             keys = []
@@ -78,7 +85,7 @@ class LocalBench:
 
             names = [x.name for x in keys]
             bls_pubkeys_g2 = [_.nameg2 for _ in bls_keys]
-            committee = LocalCommittee(names, self.BASE_PORT, self.workers, self.bench_parameters.faults, bls_pubkeys_g2)
+            committee = LocalCommittee(names, self.BASE_PORT, self.workers, self.bench_parameters.faults, bls_pubkeys_g2, clan_info)
             committee.print(PathMaker.committee_file())
 
             self.node_parameters.print(PathMaker.parameters_file())

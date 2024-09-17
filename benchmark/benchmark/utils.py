@@ -30,6 +30,10 @@ class PathMaker:
     @staticmethod
     def committee_file():
         return '.committee.json'
+    
+    @staticmethod
+    def clan_file():
+        return '.clan.json'
 
     @staticmethod
     def parameters_file():

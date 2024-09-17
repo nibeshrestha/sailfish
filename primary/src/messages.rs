@@ -107,6 +107,70 @@ impl fmt::Display for Header {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct HeaderInfo {
+    pub author: PublicKey,
+    pub round: Round,
+    pub payload: Digest,
+    pub parents: BTreeSet<Digest>,
+    pub id: Digest,
+    pub signature: Signature,
+    pub timeout_cert: TimeoutCert,
+    pub no_vote_certs: Vec<NoVoteCert>,
+}
+
+impl HeaderInfo {
+    pub fn create_from(header: Header) -> Self {
+        let header_info = Self {
+            author: header.author,
+            round: header.round,
+            payload: payload_digest(&header),
+            parents: header.parents,
+            id: header.id,
+            signature: header.signature,
+            timeout_cert: header.timeout_cert,
+            no_vote_certs: header.no_vote_certs,
+        };
+
+        header_info
+    }
+
+    pub fn verify(&self, committee: &Committee) -> DagResult<()> {
+        // Ensure the authority has voting rights.
+        let voting_rights = committee.stake(&self.author);
+        ensure!(voting_rights > 0, DagError::UnknownAuthority(self.author));
+
+        // Check the signature.
+        self.signature
+            .verify(&self.id, &self.author)
+            .map_err(DagError::from)
+
+        // Check if pointer to prev leader exists
+    }
+}
+
+fn payload_digest(header: &Header) -> Digest {
+    let mut hasher = Sha512::new();
+
+    for x in &header.payload {
+        hasher.update(x);
+    }
+
+    Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
+}
+
+impl fmt::Debug for HeaderInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}: B{}({})", self.id, self.round, self.author,)
+    }
+}
+
+impl fmt::Display for HeaderInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "B{}({})", self.round, self.author)
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Timeout {
     pub round: Round,
@@ -240,6 +304,22 @@ impl Vote {
             id: header.digest(),
             round: header.round,
             origin: header.author,
+            author: *author,
+            signature: SignatureShareG1::default(),
+        };
+        let signature = bls_signature_service.request_signature(vote.digest()).await;
+        Self { signature, ..vote }
+    }
+
+    pub async fn new_for_header_info(
+        header_info: &HeaderInfo,
+        author: &PublicKey,
+        bls_signature_service: &mut BlsSignatureService,
+    ) -> Self {
+        let vote = Self {
+            id: header_info.id.clone(),
+            round: header_info.round,
+            origin: header_info.author,
             author: *author,
             signature: SignatureShareG1::default(),
         };

@@ -5,7 +5,7 @@ use crate::error::DagError;
 use crate::garbage_collector::GarbageCollector;
 use crate::header_waiter::HeaderWaiter;
 use crate::helper::Helper;
-use crate::messages::{Certificate, Header, NoVoteMsg, Timeout, Vote};
+use crate::messages::{Certificate, Header, HeaderInfo, NoVoteMsg, Timeout, Vote};
 // use crate::payload_receiver::PayloadReceiver;
 use crate::proposer::Proposer;
 use crate::synchronizer::Synchronizer;
@@ -13,7 +13,7 @@ use crate::worker::Worker;
 use async_trait::async_trait;
 use blsttc::PublicKeyShareG2;
 use bytes::Bytes;
-use config::{BlsKeyPair, Committee, KeyPair, Parameters, WorkerId};
+use config::{BlsKeyPair, Clan, Committee, KeyPair, Parameters, WorkerId};
 use crypto::{BlsSignatureService, Digest, PublicKey, SignatureService};
 use futures::sink::SinkExt as _;
 use log::info;
@@ -33,7 +33,7 @@ pub type Round = u64;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum PrimaryMessage {
-    Header(Header),
+    HeaderMsg(HeaderMessage),
     Timeout(Timeout),
     NoVoteMsg(NoVoteMsg),
     Vote(Vote),
@@ -41,6 +41,12 @@ pub enum PrimaryMessage {
     VerifiedCertificate(Certificate),
     CertificatesRequest(Vec<Digest>, /* requestor */ PublicKey),
     PayloadRequest(Digest, PublicKey),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum HeaderMessage {
+    Header(Header),
+    HeaderInfo(HeaderInfo),
 }
 
 /// The messages sent by the primary to its workers.
@@ -68,13 +74,14 @@ impl Primary {
         keypair: KeyPair,
         bls_keypair: BlsKeyPair,
         committee: Committee,
+        clan: Clan,
         sorted_keys: Vec<PublicKeyShareG2>,
         combined_key: PublicKeyShareG2,
         parameters: Parameters,
         store: Store,
         tx_consensus: Sender<Certificate>,
         rx_consensus: Receiver<Certificate>,
-        tx_consensus_header: Sender<Header>,
+        tx_consensus_header_msg: Sender<HeaderMessage>,
         leaders_per_round: usize,
     ) {
         // let (tx_others_digests, rx_others_digests) = channel(CHANNEL_CAPACITY);
@@ -171,6 +178,7 @@ impl Primary {
             name,
             name_bls,
             Arc::new(committee.clone()),
+            Arc::new(clan),
             sorted_keys,
             Arc::new(combined_key),
             store.clone(),
@@ -190,7 +198,7 @@ impl Primary {
             /* tx_proposer */ tx_parents,
             tx_timeout_cert,
             tx_no_vote_cert,
-            tx_consensus_header,
+            tx_consensus_header_msg,
             leaders_per_round,
         );
 

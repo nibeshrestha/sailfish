@@ -18,7 +18,7 @@ from benchmark.commands import CommandMaker
 from benchmark.logs import LogParser, ParseError
 from benchmark.instance import InstanceManager
 import asyncio, asyncssh
-
+import json
 STATUS_FAILURE=25
 STATUS_SUCCESS=0
 
@@ -285,6 +285,7 @@ class Bench:
         async with connection.start_sftp_client() as sftp:
             # Copy the Deploy Key to /home/ubuntu
             await sftp.put(PathMaker.committee_file(), '.', preserve=True)
+            await sftp.put(PathMaker.clan_file(), '.', preserve=True)
             # Copy the installation and update scripts to the same location
             await sftp.put(PathMaker.bls_key_file(id), '.', preserve=True)
             await sftp.put(PathMaker.ed_key_file(id), '.', preserve=True)
@@ -292,6 +293,10 @@ class Bench:
 
     def _generate_config(self, hosts, node_parameters, bench_parameters):
         Print.info('Generating configuration files...')
+
+        nodes = len(hosts)
+        clan_info =  bench_parameters.clan_info
+        total_clan = len(clan_info)
 
         # Cleanup all local configuration files.
         cmd = CommandMaker.cleanup()
@@ -305,8 +310,13 @@ class Bench:
         cmd = CommandMaker.alias_binaries(PathMaker.binary_path())
         subprocess.run([cmd], shell=True)
 
-        cmd = CommandMaker.generate_bls_keys(len(hosts), 2, PathMaker.bls_file_default_path()).split()
-        subprocess.run(cmd, check=True)
+        node_id=0
+        for i in range(0,len(clan_info)):
+            clan_size = clan_info[i][0]
+            threshold = clan_info[i][2]
+            cmd = CommandMaker.generate_bls_keys(clan_size,threshold,PathMaker.bls_file_default_path(),node_id).split()
+            subprocess.run(cmd, check=True)
+            node_id+=clan_size
 
         # Generate configuration files.
         keys = []
@@ -334,8 +344,17 @@ class Bench:
             addresses = OrderedDict(
                 (x, y) for x, y in zip(names, hosts)
             )
-        committee = Committee.from_address_list(addresses, self.settings.base_port, bench_parameters.faults, bls_pubkeys_g2)
+        committee = Committee.from_address_list(addresses, self.settings.base_port, bench_parameters.faults, bls_pubkeys_g2, bench_parameters.clan_info)
         committee.print(PathMaker.committee_file())
+
+        with open('.committee.json', 'r') as file:
+            committee_member = json.load(file)
+        clan_members = {key: value for key, value in committee_member['authorities'].items() if value['is_clan_member']}
+        # Create a new JSON object with the filtered data
+        clan = {'members': clan_members}
+        with open(PathMaker.clan_file(), 'w') as file:
+            json.dump(clan, file, indent=4)
+
         node_parameters.print(PathMaker.parameters_file())
         return (committee, names)
 

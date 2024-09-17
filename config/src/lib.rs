@@ -9,12 +9,16 @@ use std::fs::{self, OpenOptions};
 use std::io::BufWriter;
 use std::io::Write as _;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
     #[error("Node {0} is not in the committee")]
     NotInCommittee(PublicKey),
+
+    #[error("Node {0} is not in the clan")]
+    NotInClan(PublicKey),
 
     #[error("Unknown worker id {0}")]
     UnknownWorker(WorkerId),
@@ -84,6 +88,7 @@ pub struct Parameters {
     /// is not reached. Denominated in ms.
     pub max_batch_delay: u64,
     pub leaders_per_round: usize,
+    pub total_clan: usize,
 }
 
 impl Default for Parameters {
@@ -99,6 +104,7 @@ impl Default for Parameters {
             tx_size: 512,
             max_batch_delay: 100,
             leaders_per_round: 3,
+            total_clan: 0,
         }
     }
 }
@@ -142,7 +148,9 @@ pub struct WorkerAddresses {
 #[derive(Clone, Deserialize)]
 pub struct Authority {
     pub bls_pubkey_g2: PublicKeyShareG2,
-    /// The voting power of this authority.
+    pub is_clan_member: bool,
+    pub clan_id: usize,
+    /// The voting power of this authority
     pub stake: Stake,
     /// The network addresses of the primary.
     pub primary: PrimaryAddresses,
@@ -245,6 +253,18 @@ impl Committee {
             .collect()
     }
 
+    pub fn others_primaries_not_in_my_clan(
+        &self,
+        myself: &PublicKey,
+        self_clan_id: usize,
+    ) -> Vec<(PublicKey, PrimaryAddresses)> {
+        self.authorities
+            .iter()
+            .filter(|(name, authmem)| name != &myself && authmem.clan_id != self_clan_id)
+            .map(|(name, authority)| (*name, authority.primary.clone()))
+            .collect()
+    }
+
     /// Returns the addresses of a specific worker (`id`) of a specific authority (`to`).
     pub fn worker(&self, to: &PublicKey, id: &WorkerId) -> Result<WorkerAddresses, ConfigError> {
         self.authorities
@@ -311,6 +331,178 @@ impl Committee {
     }
 }
 
+#[derive(Clone, Deserialize)]
+pub struct ClanMember {
+    pub bls_pubkey_g2: PublicKeyShareG2,
+    pub is_clan_member: bool,
+    pub clan_id: usize,
+    /// The voting power of this authority
+    pub stake: Stake,
+    /// The network addresses of the primary.
+    pub primary: PrimaryAddresses,
+    /// Map of workers' id and their network addresses.
+    pub workers: HashMap<WorkerId, WorkerAddresses>,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct Clan {
+    pub members: BTreeMap<PublicKey, ClanMember>,
+}
+
+impl Import for Clan {}
+
+impl Clan {
+    pub fn create_clan_from_committee(
+        committee: &Committee,
+        clan_id: usize,
+    ) -> Result<Self, ConfigError> {
+        let mut clan_members = BTreeMap::new();
+
+        for (public_key, authority) in &committee.authorities {
+            if authority.is_clan_member && authority.clan_id == clan_id {
+                let clan_member = ClanMember {
+                    bls_pubkey_g2: authority.bls_pubkey_g2,
+                    is_clan_member: authority.is_clan_member,
+                    clan_id: authority.clan_id,
+                    stake: authority.stake.clone(),
+                    primary: authority.primary.clone(),
+                    workers: authority.workers.clone(),
+                };
+                clan_members.insert(public_key.clone(), clan_member);
+            }
+        }
+
+        Ok(Clan {
+            members: clan_members,
+        })
+    }
+
+    pub fn get_my_clan_id(&self, myself: &PublicKey) -> usize {
+        self.members.get(&myself).unwrap().clan_id
+    }
+    /// Returns the number of authorities.
+    pub fn size(&self) -> usize {
+        self.members.len()
+    }
+
+    /// Return the stake of a specific authority.
+    pub fn stake(&self, name: &PublicKey) -> Stake {
+        self.members.get(name).map_or_else(|| 0, |x| x.stake)
+    }
+
+    /// Returns the stake of all authorities except `myself`.
+    pub fn others_stake(&self, myself: &PublicKey) -> Vec<(PublicKey, Stake)> {
+        self.members
+            .iter()
+            .filter(|(name, _)| name != &myself)
+            .map(|(name, authority)| (*name, authority.stake))
+            .collect()
+    }
+
+    /// Returns the stake required to reach a quorum (2f+1).
+    pub fn quorum_threshold(&self) -> Stake {
+        // If N = 3f + 1 + k (0 <= k < 3)
+        // then (2 N + 3) / 3 = 2f + 1 + (2k + 2)/3 = 2f + 1 + k = N - f
+        let total_votes: Stake = self.members.values().map(|x| x.stake).sum();
+        2 * total_votes / 3 + 1
+    }
+
+    /// Returns the stake required to reach availability (f+1).
+    pub fn validity_threshold(&self) -> Stake {
+        // If N = 3f + 1 + k (0 <= k < 3)
+        // then (N + 2) / 3 = f + 1 + k/3 = f + 1
+        let total_votes: Stake = self.members.values().map(|x| x.stake).sum();
+        (total_votes + 2) / 3
+    }
+
+    /// Returns the primary addresses of the target primary.
+    pub fn primary(&self, to: &PublicKey) -> Result<PrimaryAddresses, ConfigError> {
+        self.members
+            .get(to)
+            .map(|x| x.primary.clone())
+            .ok_or_else(|| ConfigError::NotInCommittee(*to))
+    }
+
+    /// Returns the addresses of all primaries except `myself`.
+    pub fn only_my_clan_other_primaries(
+        &self,
+        myself: &PublicKey,
+        self_clan_id: usize,
+    ) -> Vec<(PublicKey, PrimaryAddresses)> {
+        self.members
+            .iter()
+            .filter(|(name, clanmem)| name != &myself && clanmem.clan_id == self_clan_id)
+            .map(|(name, clan_member)| (*name, clan_member.primary.clone()))
+            .collect()
+    }
+
+    /// Returns the addresses of a specific worker (`id`) of a specific authority (`to`).
+    pub fn worker(&self, to: &PublicKey, id: &WorkerId) -> Result<WorkerAddresses, ConfigError> {
+        self.members
+            .iter()
+            .find(|(name, _)| name == &to)
+            .map(|(_, authority)| authority)
+            .ok_or_else(|| ConfigError::NotInCommittee(*to))?
+            .workers
+            .iter()
+            .find(|(worker_id, _)| worker_id == &id)
+            .map(|(_, worker)| worker.clone())
+            .ok_or_else(|| ConfigError::NotInCommittee(*to))
+    }
+
+    /// Returns the addresses of all our workers.
+    pub fn our_workers(&self, myself: &PublicKey) -> Result<Vec<WorkerAddresses>, ConfigError> {
+        self.members
+            .iter()
+            .find(|(name, _)| name == &myself)
+            .map(|(_, authority)| authority)
+            .ok_or_else(|| ConfigError::NotInCommittee(*myself))?
+            .workers
+            .values()
+            .cloned()
+            .map(Ok)
+            .collect()
+    }
+
+    /// Returns the addresses of all workers with a specific id except the ones of the authority
+    /// specified by `myself`.
+    pub fn others_workers(
+        &self,
+        myself: &PublicKey,
+        id: &WorkerId,
+    ) -> Vec<(PublicKey, WorkerAddresses)> {
+        self.members
+            .iter()
+            .filter(|(name, _)| name != &myself)
+            .filter_map(|(name, authority)| {
+                authority
+                    .workers
+                    .iter()
+                    .find(|(worker_id, _)| worker_id == &id)
+                    .map(|(_, addresses)| (*name, addresses.clone()))
+            })
+            .collect()
+    }
+
+    pub fn get_public_keys(&self) -> Vec<PublicKey> {
+        self.members
+            .iter()
+            .map(|(name, _)| (name.clone()))
+            .collect()
+    }
+    pub fn get_bls_public_keys(&self) -> Vec<PublicKeyShareG2> {
+        self.members.iter().map(|(_, x)| x.bls_pubkey_g2).collect()
+    }
+
+    pub fn get_bls_public_g2(&self, name: &PublicKey) -> PublicKeyShareG2 {
+        self.members.get(name).map(|x| x.bls_pubkey_g2).unwrap()
+    }
+
+    pub fn is_member(&self, name: &PublicKey) -> bool {
+        self.members.get(name).is_some()
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct KeyPair {
     /// The node's public key (and identifier).
@@ -349,8 +541,8 @@ impl Import for BlsKeyPair {}
 impl Export for BlsKeyPair {}
 
 impl BlsKeyPair {
-    pub fn new(nodes: usize, threshold: usize, path: String) {
-        crypto::create_bls_key_pairs(nodes, threshold, path);
+    pub fn new(nodes: usize, threshold: usize, path: String, node_id_to_start: usize) {
+        crypto::create_bls_key_pairs(nodes, threshold, path, node_id_to_start);
     }
 }
 

@@ -24,18 +24,14 @@ class CommandMaker:
     def generate_ed_key(filename):
         assert isinstance(filename, str)
         return f'./node generate_keys --filename {filename}'
-    
-    @staticmethod
-    def generate_bls_key(filename):
-        assert isinstance(filename, str)
-        return f'./node generate_bls_keys --filename {filename}'
 
     @staticmethod
-    def generate_bls_keys(total_nodes, threshold_val, path):
-        assert isinstance(total_nodes, int)
-        assert isinstance(threshold_val, int)
+    def generate_bls_keys(clan_nodes, threshold, path, node_id_to_start):
+        assert isinstance(clan_nodes, int)
+        assert isinstance(threshold, int)
         assert isinstance(path, str)
-        return f'./node generate_bls_keys --nodes {total_nodes} --threshold {threshold_val} --path {path}'
+        assert isinstance(node_id_to_start, int)
+        return f'./node generate_bls_keys --nodes {clan_nodes} --threshold {threshold} --path {path} --node_id_to_start {node_id_to_start}'
 
 
     @staticmethod

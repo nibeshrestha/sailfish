@@ -265,7 +265,8 @@ pub struct NodeKeyInfo {
     pub secret: String,
 }
 
-pub fn create_bls_key_pairs(nodes: usize, threshold: usize, path: String) {
+pub fn create_bls_key_pairs(nodes: usize, threshold: usize, path: String, node_id: usize) {
+    let mut nid = node_id;
     let mut rng = blsttc::rand::rngs::OsRng;
     // Generate a set of secret key shares
     let sk_set = SecretKeySet::random(threshold, &mut rng);
@@ -283,10 +284,11 @@ pub fn create_bls_key_pairs(nodes: usize, threshold: usize, path: String) {
             secret: sk_share.encode_base64(),
         };
 
-        let id = node_id.to_string();
+        let id = nid.to_string();
         let path = path.replace('x', id.as_str());
         let json_data = serde_json::to_string_pretty(&node_info).unwrap();
         std::fs::write(path, json_data).expect("Failed to write JSON data to file");
+        nid += 1;
     }
 }
 
