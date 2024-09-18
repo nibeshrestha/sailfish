@@ -15,8 +15,7 @@ def local(ctx, debug=False, consensus_only=False):
     bench_params = {
         'faults': 0,
         'tribe_size': 4,
-        "total_clan" : 2,
-        "clan_info" : [[2,1],[2,1]],
+        "clan_size" : 2,
         'workers': 1,
         'rate': 100_000,
         'tx_size': 512,
@@ -34,7 +33,6 @@ def local(ctx, debug=False, consensus_only=False):
         'tx_size': bench_params['tx_size'],
         'max_batch_delay': 200,  # ms
         'leaders_per_round': 3,
-        'total_clan' : bench_params['total_clan']
     }
     try:
         ret = LocalBench(bench_params, node_params).run(debug, consensus_only)
@@ -103,8 +101,7 @@ def remote(ctx, burst = 50, debug=False, consensus_only=True):
     bench_params = {
         'faults': 0,
         'tribe_size': 4,
-        "total_clan" : 2,
-        "clan_info" : [[2,1],[2,1]],
+        "clan_size" : 2,
         'workers': 1,
         'collocate': True,
         'rate': [100000],
@@ -129,7 +126,6 @@ def remote(ctx, burst = 50, debug=False, consensus_only=True):
         'tx_size': bench_params['tx_size'],  # bytes
         'max_batch_delay': 200,  # ms
         'leaders_per_round': 3,
-        'total_clan' : bench_params['total_clan']
     }
     try:
         Bench(ctx).run(bench_params, node_params, debug, consensus_only)

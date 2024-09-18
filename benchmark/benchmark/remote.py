@@ -295,8 +295,7 @@ class Bench:
         Print.info('Generating configuration files...')
 
         nodes = len(hosts)
-        clan_info =  bench_parameters.clan_info
-        total_clan = len(clan_info)
+        clan_size =  bench_parameters.clan_size
 
         # Cleanup all local configuration files.
         cmd = CommandMaker.cleanup()
@@ -310,13 +309,13 @@ class Bench:
         cmd = CommandMaker.alias_binaries(PathMaker.binary_path())
         subprocess.run([cmd], shell=True)
 
-        node_id=0
-        for i in range(0,len(clan_info)):
-            clan_size = clan_info[i][0]
-            threshold = clan_info[i][2]
-            cmd = CommandMaker.generate_bls_keys(clan_size,threshold,PathMaker.bls_file_default_path(),node_id).split()
-            subprocess.run(cmd, check=True)
-            node_id+=clan_size
+       #bls key gen for clan
+        cmd = CommandMaker.generate_bls_keys(clan_size, 1, PathMaker.bls_file_default_path(), 0).split()
+        subprocess.run(cmd, check=True)
+
+            #bls key gen for rest
+        cmd = CommandMaker.generate_bls_keys((nodes-clan_size), 1, PathMaker.bls_file_default_path(), (clan_size)).split()
+        subprocess.run(cmd, check=True)
 
         # Generate configuration files.
         keys = []
@@ -344,7 +343,7 @@ class Bench:
             addresses = OrderedDict(
                 (x, y) for x, y in zip(names, hosts)
             )
-        committee = Committee.from_address_list(addresses, self.settings.base_port, bench_parameters.faults, bls_pubkeys_g2, bench_parameters.clan_info)
+        committee = Committee.from_address_list(addresses, self.settings.base_port, bench_parameters.faults, bls_pubkeys_g2, bench_parameters.clan_size)
         committee.print(PathMaker.committee_file())
 
         with open('.committee.json', 'r') as file:

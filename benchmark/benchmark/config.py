@@ -56,7 +56,7 @@ class Committee:
     def __init__(self, json):
         self.json = json
 
-    def address_list_to_json(addresses, base_port, faults,bls_pubkeys_g2, clan_info):
+    def address_list_to_json(addresses, base_port, faults,bls_pubkeys_g2, clan_size):
         ''' The `addresses` field looks as follows:
             { 
                 "name": ["host", "host", ...],
@@ -78,11 +78,7 @@ class Committee:
         json = {'authorities': OrderedDict()}
         num_authorities = len(addresses)
 
-        clan_id = 0
-        clan_length = clan_info[clan_id][0]
-        total_clan = len(clan_info)
-
-        counter = 0
+        clan_peers = clan_size
 
         for i, (name, hosts) in enumerate(addresses.items()):
             # port = base_port
@@ -107,21 +103,18 @@ class Committee:
                 }
                 port += 3
 
-            counter += 1
-            clan_member = False
-            if clan_length > 0:
-                clan_member=True
-                clan_length = clan_length-1
+            is_clan_member = False
+            if clan_peers > 0:
+                is_clan_member=True
+                clan_peers = clan_peers-1
             else : 
-                clan_member=False
-
+                is_clan_member=False
 
 
             json['authorities'][name] = {
                 # Corresponds to the determination of faulty nodes in primary_addresses.
                 'bls_pubkey_g2': bls_pubkeys_g2[i],
-                'is_clan_member': True, #everyone is clan members
-                'clan_id' : clan_id,
+                'is_clan_member': is_clan_member,
                 'is_honest': i < num_authorities - faults,
                 'stake': 1,
                 'consensus': consensus_addr,
@@ -129,15 +122,11 @@ class Committee:
                 'workers': workers_addr
             }
 
-            if counter == clan_info[clan_id][0] and clan_id < total_clan-1:
-                clan_id +=1
-                counter = 0
-                clan_length = clan_info[clan_id][0]
         return json
 
     @classmethod
-    def from_address_list(cls, addresses, base_port, faults,bls_pubkeys_g2, clan_info):
-        return cls(Committee.address_list_to_json(addresses, base_port, faults,bls_pubkeys_g2, clan_info))
+    def from_address_list(cls, addresses, base_port, faults,bls_pubkeys_g2, clan_size):
+        return cls(Committee.address_list_to_json(addresses, base_port, faults,bls_pubkeys_g2, clan_size))
 
     def primary_addresses(self, faults=0):
         ''' Returns an ordered list of primaries' addresses. '''
@@ -239,7 +228,7 @@ class NodeParameters:
             inputs += [json['max_batch_delay']]
             inputs += [json['tx_size']]
             inputs += [json['leaders_per_round']]
-            inputs += [json['total_clan']]
+
         except KeyError as e:
             raise ConfigError(f'Malformed parameters: missing key {e}')
 
@@ -260,8 +249,7 @@ class BenchParameters:
             self.faults = int(json['faults'])
 
             self.total_nodes = int(json['tribe_size'])
-            self.total_clan = int(json['total_clan'])
-            self.clan_info = json['clan_info']
+            self.clan_size = int(json['clan_size'])
 
             nodes = json['tribe_size']
             nodes = nodes if isinstance(nodes, list) else [nodes]
@@ -290,16 +278,6 @@ class BenchParameters:
             self.runs = int(json['runs']) if 'runs' in json else 1
 
             self.burst = json['burst']
-
-            self.total_members = 0 
-            for [mem,_] in self.clan_info:
-                self.total_members += mem
-                
-            # if self.total_nodes != self.total_members:
-            #     raise ConfigError('sum of all nodes in all clan can not be more than total nodes')
-
-            if self.total_clan != len(self.clan_info):
-                raise ConfigError('number of total clan is not equal to length of clan info')
             
         except KeyError as e:
             raise ConfigError(f'Malformed bench parameters: missing key {e}')

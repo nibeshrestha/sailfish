@@ -242,13 +242,15 @@ impl Core {
             .entry(header.id.clone())
             .or_insert(VotesAggregator::new(sorted_keys, self.committee.size()));
 
-        // Broadcast the new header in a reliable manner to clan members.
-        let addresses = self
-            .clan
-            .only_my_clan_other_primaries(
-                &self.name,
-                self.clan.members.get(&self.name).unwrap().clan_id,
-            )
+        // Broadcast the new full header in a reliable manner to clan members.
+        let addresses: Vec<_>;
+        if self.clan.is_clan_member(&name) {
+            addresses = self.clan.my_clan_other_primaries(&name);
+        } else {
+            addresses = self.committee.clan_members_primaries(&name);
+        }
+
+        let addresses = addresses
             .iter()
             .map(|(_, x)| x.primary_to_primary)
             .collect();
@@ -261,7 +263,7 @@ impl Core {
             .or_insert_with(Vec::new)
             .extend(handlers);
 
-        // // Broadcast the new header info in a reliable manner to non clan members.
+        // Broadcast the new header info in a reliable manner to non clan members.
         let header_info = HeaderInfo::create_from(header.clone());
         let header_msg = HeaderMessage::HeaderInfo(header_info);
         let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(header_msg))
@@ -269,10 +271,7 @@ impl Core {
 
         let addresses = self
             .committee
-            .others_primaries_not_in_my_clan(
-                &self.name,
-                self.clan.members.get(&self.name).unwrap().clan_id,
-            )
+            .others_primaries_not_in_clan(&self.name)
             .iter()
             .map(|(_, x)| x.primary_to_primary)
             .collect();

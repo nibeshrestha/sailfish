@@ -88,7 +88,6 @@ pub struct Parameters {
     /// is not reached. Denominated in ms.
     pub max_batch_delay: u64,
     pub leaders_per_round: usize,
-    pub total_clan: usize,
 }
 
 impl Default for Parameters {
@@ -104,7 +103,6 @@ impl Default for Parameters {
             tx_size: 512,
             max_batch_delay: 100,
             leaders_per_round: 3,
-            total_clan: 0,
         }
     }
 }
@@ -149,7 +147,6 @@ pub struct WorkerAddresses {
 pub struct Authority {
     pub bls_pubkey_g2: PublicKeyShareG2,
     pub is_clan_member: bool,
-    pub clan_id: usize,
     /// The voting power of this authority
     pub stake: Stake,
     /// The network addresses of the primary.
@@ -253,14 +250,21 @@ impl Committee {
             .collect()
     }
 
-    pub fn others_primaries_not_in_my_clan(
+    pub fn others_primaries_not_in_clan(
         &self,
         myself: &PublicKey,
-        self_clan_id: usize,
     ) -> Vec<(PublicKey, PrimaryAddresses)> {
         self.authorities
             .iter()
-            .filter(|(name, authmem)| name != &myself && authmem.clan_id != self_clan_id)
+            .filter(|(name, authmem)| name != &myself && authmem.is_clan_member != true)
+            .map(|(name, authority)| (*name, authority.primary.clone()))
+            .collect()
+    }
+
+    pub fn clan_members_primaries(&self, myself: &PublicKey) -> Vec<(PublicKey, PrimaryAddresses)> {
+        self.authorities
+            .iter()
+            .filter(|(name, authmem)| name != &myself && authmem.is_clan_member == true)
             .map(|(name, authority)| (*name, authority.primary.clone()))
             .collect()
     }
@@ -335,7 +339,6 @@ impl Committee {
 pub struct ClanMember {
     pub bls_pubkey_g2: PublicKeyShareG2,
     pub is_clan_member: bool,
-    pub clan_id: usize,
     /// The voting power of this authority
     pub stake: Stake,
     /// The network addresses of the primary.
@@ -352,18 +355,14 @@ pub struct Clan {
 impl Import for Clan {}
 
 impl Clan {
-    pub fn create_clan_from_committee(
-        committee: &Committee,
-        clan_id: usize,
-    ) -> Result<Self, ConfigError> {
+    pub fn create_clan_from_committee(committee: &Committee) -> Result<Self, ConfigError> {
         let mut clan_members = BTreeMap::new();
 
         for (public_key, authority) in &committee.authorities {
-            if authority.is_clan_member && authority.clan_id == clan_id {
+            if authority.is_clan_member {
                 let clan_member = ClanMember {
                     bls_pubkey_g2: authority.bls_pubkey_g2,
                     is_clan_member: authority.is_clan_member,
-                    clan_id: authority.clan_id,
                     stake: authority.stake.clone(),
                     primary: authority.primary.clone(),
                     workers: authority.workers.clone(),
@@ -377,9 +376,6 @@ impl Clan {
         })
     }
 
-    pub fn get_my_clan_id(&self, myself: &PublicKey) -> usize {
-        self.members.get(&myself).unwrap().clan_id
-    }
     /// Returns the number of authorities.
     pub fn size(&self) -> usize {
         self.members.len()
@@ -424,14 +420,13 @@ impl Clan {
     }
 
     /// Returns the addresses of all primaries except `myself`.
-    pub fn only_my_clan_other_primaries(
+    pub fn my_clan_other_primaries(
         &self,
         myself: &PublicKey,
-        self_clan_id: usize,
     ) -> Vec<(PublicKey, PrimaryAddresses)> {
         self.members
             .iter()
-            .filter(|(name, clanmem)| name != &myself && clanmem.clan_id == self_clan_id)
+            .filter(|(name, clanmem)| name != &myself)
             .map(|(name, clan_member)| (*name, clan_member.primary.clone()))
             .collect()
     }
