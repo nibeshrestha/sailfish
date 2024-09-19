@@ -118,7 +118,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
         Committee::import(committee_file).context("Failed to load the committee information")?;
 
     //fetching clan
-    let clan = Clan::create_clan_from_committee(committee.clone())
+    let clan = Clan::create_clan_from_committee(&committee)
         .context("Failed to load the clan information")?;
 
     let mut sorted_keys = committee.get_bls_public_keys();

@@ -244,10 +244,10 @@ impl Core {
 
         // Broadcast the new full header in a reliable manner to clan members.
         let addresses: Vec<_>;
-        if self.clan.is_clan_member(&name) {
-            addresses = self.clan.my_clan_other_primaries(&name);
+        if self.clan.is_member(&self.name) {
+            addresses = self.clan.my_clan_other_primaries(&self.name);
         } else {
-            addresses = self.committee.clan_members_primaries(&name);
+            addresses = self.committee.clan_members_primaries(&self.name);
         }
 
         let addresses = addresses
