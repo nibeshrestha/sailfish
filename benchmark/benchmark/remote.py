@@ -313,7 +313,7 @@ class Bench:
         node_id=0
         for i in range(0,len(clan_info)):
             clan_size = clan_info[i][0]
-            threshold = clan_info[i][2]
+            threshold = clan_info[i][1]
             cmd = CommandMaker.generate_bls_keys(clan_size,threshold,PathMaker.bls_file_default_path(),node_id).split()
             subprocess.run(cmd, check=True)
             node_id+=clan_size

@@ -44,7 +44,7 @@ def local(ctx, debug=False, consensus_only=False):
 
 
 @task
-def create(ctx, nodes=1):
+def create(ctx, nodes=2):
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
@@ -102,9 +102,9 @@ def remote(ctx, burst = 50, debug=False, consensus_only=True):
     ''' Run benchmarks on GCP '''
     bench_params = {
         'faults': 0,
-        'tribe_size': 4,
+        'tribe_size': 10,
         "total_clan" : 2,
-        "clan_info" : [[2,1],[2,1]],
+        "clan_info" : [[5,1],[5,1]],
         'workers': 1,
         'collocate': True,
         'rate': [100000],
@@ -114,7 +114,7 @@ def remote(ctx, burst = 50, debug=False, consensus_only=True):
         'burst' : [burst],
     } 
 
-    nodes = bench_params['nodes']
+    nodes = bench_params['tribe_size']
     rate =  1000 * nodes * 20
     bench_params['rate'] = [rate]
 
