@@ -67,7 +67,7 @@ impl CertificateWaiter {
 
                     let key = certificate.header_id.to_vec();
 
-                    if let Some(res) = self.store.read(key).await.unwrap() {
+                    if let Some(res) = self.store.read(key.clone()).await.unwrap() {
                         let header_msg = bincode::deserialize(&res).unwrap();
 
                         let parents: BTreeSet<_>;
@@ -88,7 +88,12 @@ impl CertificateWaiter {
 
                         let fut = Self::waiter(wait_for, certificate);
                         waiting.push(fut);
+                    }else{
+                        let wait_for = vec![(key, self.store.clone())];
+                        let fut = Self::waiter(wait_for, certificate);
+                        waiting.push(fut);
                     }
+
                 }
                 Some(result) = waiting.next() => match result {
                     Ok(certificate) => {
