@@ -300,7 +300,6 @@ impl Core {
         match header_msg {
             HeaderMessage::Header(header) => {
                 debug!("Processing {:?}", header);
-                info!("Got header {:?}", header.id);
 
                 // Indicate that we are processing this header.
                 self.processing_headers
@@ -408,7 +407,6 @@ impl Core {
 
             HeaderMessage::HeaderInfo(header_info) => {
                 debug!("Processing {:?}", header_info);
-                info!("Got header info {:?}", header_info.id);
 
                 // Indicate that we are processing this header.
                 self.processing_header_infos
@@ -428,7 +426,7 @@ impl Core {
                 if header_info.round != 1 {
                     let parents = self.synchronizer.get_parents(&header_msg).await?;
                     if parents.is_empty() {
-                        info!(
+                        debug!(
                             "Processing of {} suspended: missing parent(s)",
                             header_info.id
                         );

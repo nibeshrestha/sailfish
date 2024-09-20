@@ -160,7 +160,6 @@ impl Consensus {
 
                     let leader_and_digest_list : Vec<_> = self.leader_list(self.leaders_per_round, leader_round, &state.dag);
 
-                    let mut cnt = 0;
                     for i in 0..self.leaders_per_round {
                         let (leader_digest, leader) = match leader_and_digest_list[i] {
                             Some(x) => x,
@@ -168,12 +167,8 @@ impl Consensus {
                         };
 
                         if h_parents.contains(leader_digest) {
-                            cnt+=1;
                             *self.stake_vote.entry((leader.round, leader_digest.clone())).or_insert(0) += self.committee.stake(&h_author);
                         }
-                    }
-                    if cnt < self.leaders_per_round{
-                        info!("Not enough leaders voted {} round {}", cnt, h_round);
                     }
 
                     //iterate thorugh all the leaders of the round
@@ -227,7 +222,8 @@ impl Consensus {
                                 }
                             }
                         }else{
-                            info!("Failed to commit leader at {} round {} stake_value {}", i, leader_round, current_stake_value);
+                            // debug!("Failed to commit leader at {} round {} stake_value {}", i, leader_round, current_stake_value);
+                            // Skip committing rest of the leaders as the current leader is not committed.
                             break;
                         }
                     }
