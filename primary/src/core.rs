@@ -326,7 +326,7 @@ impl Core {
                         debug!("Processing of {} suspended: missing parent(s)", header.id);
                         return Ok(());
                     }
-                    info!("{:?}", parents);
+                    // info!("{:?}", parents);
                     //Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
                     let mut stake = 0;
                     let mut has_leader = false;

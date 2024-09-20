@@ -158,6 +158,19 @@ impl Consensus {
                     let leader_round = r;
                     if leader_round < state.last_committed_round || leader_round == 0 {
                         continue;
+                    }       
+
+                    let leader_and_digest_list : Vec<_> = self.leader_list(self.leaders_per_round, leader_round, &state.dag);
+                    for i in 0..self.leaders_per_round {
+
+                        let (leader_digest, leader) = match leader_and_digest_list[i] {
+                            Some(x) => x,
+                            None => break,
+                        };
+
+                        if h_parents.contains(leader_digest) {
+                            *self.stake_vote.entry((leader.round, leader_digest.clone())).or_insert(0) += self.committee.stake(&h_author);
+                        }
                     }
 
                     //iterate thorugh all the leaders of the round
@@ -169,12 +182,12 @@ impl Consensus {
                             None => break,
                         };
 
-                        if h_parents.contains(leader_digest) {
-                            *self.stake_vote.entry((leader.round, leader_digest.clone())).or_insert(0) += self.committee.stake(&h_author);
-                        }
-
                         let current_stake = self.stake_vote.get(&(leader.round, leader_digest.clone()));
                         let current_stake_value = *current_stake.unwrap_or(&0);
+
+                        //info!("{:?} : {:?}", leader_digest, current_stake_value);
+
+                        //info!("current stake val : {:?}", current_stake_value);
 
                         // Commit if we have QT
                         if current_stake_value >= self.committee.quorum_threshold() {
@@ -193,7 +206,8 @@ impl Consensus {
                                 }
                             }
 
-
+                            //info!("commiting from iteration: {:?} ", i);
+                            
                             // Output the sequence in the right order.
                             for certificate in sequence {
                                 #[cfg(not(feature = "benchmark"))]
@@ -216,11 +230,6 @@ impl Consensus {
                                     warn!("Failed to output certificate: {} with header", e);
                                 }
                             }
-                        }else {
-                            //this breaks the loop from the point it gets false for threshold of any leader's certificate
-
-                            info!("quorum failed at round {}, exiting loop without processing next leaders from here {}", r, i);
-                            break;
                         }
                     }
 
