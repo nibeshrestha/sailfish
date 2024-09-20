@@ -14,12 +14,12 @@ def local(ctx, debug=False, consensus_only=False):
     ''' Run benchmarks on localhost '''
     bench_params = {
         'faults': 0,
-        'tribe_size': 4,
-        "clan_size" : 2,
+        'tribe_size': 10,
+        "clan_size" : 5,
         'workers': 1,
         'rate': 100_000,
         'tx_size': 512,
-        'duration': 20,
+        'duration': 30,
         "burst" : 50
     }
     node_params = {
@@ -32,7 +32,7 @@ def local(ctx, debug=False, consensus_only=False):
         'batch_size': 50_000,  # bytescd
         'tx_size': bench_params['tx_size'],
         'max_batch_delay': 200,  # ms
-        'leaders_per_round': 3,
+        'leaders_per_round': 7,
     }
     try:
         ret = LocalBench(bench_params, node_params).run(debug, consensus_only)
@@ -96,7 +96,7 @@ def install(ctx):
 
 
 @task
-def remote(ctx, burst = 50, debug=False, consensus_only=True):
+def remote(ctx, burst = 50, debug=False, consensus_only=False):
     ''' Run benchmarks on GCP '''
     bench_params = {
         'faults': 0,

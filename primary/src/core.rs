@@ -302,7 +302,6 @@ impl Core {
         match header_msg {
             HeaderMessage::Header(header) => {
                 debug!("Processing {:?}", header);
-                info!("received header {:?} round {:?}", header.id, header.round);
 
                 // Indicate that we are processing this header.
                 self.processing_headers
@@ -325,7 +324,6 @@ impl Core {
                         debug!("Processing of {} suspended: missing parent(s)", header.id);
                         return Ok(());
                     }
-                    info!("{:?}", parents);
                     //Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
                     let mut stake = 0;
                     let mut has_leader = false;
@@ -373,15 +371,6 @@ impl Core {
                     }
                 }
 
-                //NO NEED TO CHECK FOR MISSING PAYLOAD BECAUSE HEADER ITSELF CONTAINS TRANSACTIONS.
-
-                // // Ensure we have the payload. If we don't, the synchronizer will ask our workers to get it, and then
-                // // reschedule processing of this header once we have it.
-                // if self.synchronizer.missing_payload(header).await? {
-                //     debug!("Processing of {} suspended: missing payload", header);
-                //     return Ok(());
-                // }
-
                 // Store the header.
                 let bytes = bincode::serialize(header_msg).expect("Failed to serialize header");
                 self.store.write(header.id.to_vec(), bytes).await;
@@ -420,10 +409,6 @@ impl Core {
 
             HeaderMessage::HeaderInfo(header_info) => {
                 debug!("Processing {:?}", header_info);
-                info!(
-                    "received header info {:?} round {:?}",
-                    header_info.id, header_info.round
-                );
 
                 // Indicate that we are processing this header.
                 self.processing_header_infos
@@ -449,9 +434,7 @@ impl Core {
                         );
                         return Ok(());
                     }
-                    
-                    //info!("{:?}", parents);
-                    
+
                     //Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
                     let mut stake = 0;
                     let mut has_leader = false;
@@ -499,15 +482,6 @@ impl Core {
                         }
                     }
                 }
-
-                //NO NEED TO CHECK FOR MISSING PAYLOAD BECAUSE HEADER ITSELF CONTAINS TRANSACTIONS.
-
-                // // Ensure we have the payload. If we don't, the synchronizer will ask our workers to get it, and then
-                // // reschedule processing of this header once we have it.
-                // if self.synchronizer.missing_payload(header).await? {
-                //     debug!("Processing of {} suspended: missing payload", header);
-                //     return Ok(());
-                // }
 
                 // Store the header.
                 let bytes =
@@ -674,7 +648,7 @@ impl Core {
                         .verify(&committee, &sorted_keys, &combined_key)
                         .map_err(DagError::from)
                         .unwrap();
-                    info!(
+                    debug!(
                         "Certificate verified for header {:?} round {:?}",
                         certificate.header_id, certificate.round
                     );
@@ -734,7 +708,7 @@ impl Core {
 
         // Send it to the consensus layer.
         let id = certificate.header_id.clone();
-        info!("sending certificate {:?} to consensus", id);
+        debug!("sending certificate {:?} to consensus", id);
         if let Err(e) = self.tx_consensus.send(certificate).await {
             warn!(
                 "Failed to deliver certificate {} to the consensus: {}",
@@ -851,7 +825,7 @@ impl Core {
                     .verify(&committee, &sorted_keys, &combined_key)
                     .map_err(DagError::from)
                     .unwrap();
-                info!(
+                debug!(
                     "ExtCertificate verified for header {:?} round {:?}",
                     certificate.header_id, certificate.round
                 );
@@ -877,27 +851,23 @@ impl Core {
                                 Ok(()) => self.process_header_msg(&header_msg, &sender_channel).await,
                                 error => error
                             }
-
                         },
                         PrimaryMessage::Timeout(timeout) => {
                             match self.sanitize_timeout(&timeout) {
                                 Ok(()) => self.process_timeout(timeout).await,
                                 error => error
                             }
-
                         },
                         PrimaryMessage::NoVoteMsg(no_vote_msg) => {
                             match self.sanitize_no_vote_msg(&no_vote_msg) {
                                 Ok(()) => self.process_no_vote_msg(no_vote_msg).await,
                                 error => error
                             }
-
                         },
                         PrimaryMessage::Vote(vote) => {
                             match self.sanitize_vote(&vote) {
                                 Ok(()) => self.process_vote(vote, &sender_channel).await,
                                 error => error
-
                             }
                         },
                         PrimaryMessage::Certificate(certificate) => {
