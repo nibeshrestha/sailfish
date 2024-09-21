@@ -63,7 +63,7 @@ impl CertificateWaiter {
                     // when all its parents are in the store.
                     let key = certificate.header_id.to_vec();
 
-                    if let Some(res) = self.store.read(key).await.unwrap() {
+                    if let Some(res) = self.store.read(key.clone()).await.unwrap() {
                         let header = Header::from(bincode::deserialize(&res).unwrap());
                         let wait_for = header.parents
                         .iter()
@@ -73,8 +73,11 @@ impl CertificateWaiter {
 
                         let fut = Self::waiter(wait_for, certificate);
                         waiting.push(fut);
+                    }else{
+                        let wait_for = vec![(key, self.store.clone())];
+                        let fut = Self::waiter(wait_for, certificate);
+                        waiting.push(fut);
                     }
-
                 }
                 Some(result) = waiting.next() => match result {
                     Ok(certificate) => {

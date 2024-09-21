@@ -254,7 +254,6 @@ impl Core {
         tx_primary: &Arc<Sender<PrimaryMessage>>,
     ) -> DagResult<()> {
         debug!("Processing {:?}", header);
-        info!("received header {:?} round {:?}", header.id, header.round);
 
         // Send header to consensus
         self.tx_consensus_header

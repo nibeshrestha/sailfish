@@ -10,11 +10,11 @@ from benchmark.remote import Bench, BenchError
 
 
 @task
-def local(ctx, debug=False, consensus_only=True):
+def local(ctx, debug=False, consensus_only=False):
     ''' Run benchmarks on localhost '''
     bench_params = {
         'faults': 0,
-        'nodes': 4,
+        'nodes': 10,
         'workers': 1,
         'rate': 100_000,
         'tx_size': 512,
