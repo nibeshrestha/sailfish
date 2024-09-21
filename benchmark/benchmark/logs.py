@@ -129,7 +129,8 @@ class LogParser:
 
         if self.consensus_only:
             samples = {}
-            sizes = {}
+            tmp = findall(r'Header ([^ ]+) contains (\d+) B', log)
+            sizes = {d: int(s) for d, s in tmp}
         else:
             tmp = findall(r'Header ([^ ]+) contains sample tx (\d+)', log)
             samples = {int(s): d for d, s in tmp}
@@ -158,6 +159,9 @@ class LogParser:
             ),
             'max_batch_delay': int(
                 search(r'Max batch delay .* (\d+)', log).group(1)
+            ),
+            'transaction_size': int(
+                search(r'Transaction size .* (\d+)', log).group(1)
             ),
         }
 
@@ -201,6 +205,16 @@ class LogParser:
         bps = bytes / duration
         tps = bps / self.size[0]
         return tps, bps, duration
+    
+    def _consensus_only_throughput(self):
+        if not self.commits:
+            return 0, 0, 0
+        start, end = min(self.proposals.values()), max(self.commits.values())
+        bytes = sum(self.sizes.values())
+        tx_size = self.configs[0]['transaction_size']
+        txns = bytes / tx_size    
+        d = end-start
+        return txns/d
 
     def _consensus_latency(self):
         latency = [c - self.proposals[d] for d, c in self.commits.items()]
@@ -265,6 +279,8 @@ class LogParser:
             consensus_tps, consensus_bps, _ = self._consensus_throughput()
             end_to_end_tps, end_to_end_bps, duration = self._end_to_end_throughput()
             end_to_end_latency = self._end_to_end_latency() * 1_000
+        else:
+            consensus_tps = self._consensus_only_throughput()
 
         csv_file_path = f'benchmark_{self.committee_size}_{header_size}_{batch_size}.csv'
         write_to_csv(round(leader_consensus_latency),round(non_leader_consensus_latency),round(consensus_tps), round(consensus_bps), round(consensus_latency),round(end_to_end_tps),round(end_to_end_bps), round(end_to_end_latency),self.burst,csv_file_path)
@@ -292,6 +308,7 @@ class LogParser:
                 '\n'
                 ' + RESULTS:\n'
                 f' Consensus BLPS: {round(blps_first):,} Block/s\n'
+                f' Consensus TPS: {round(consensus_tps):,} tx/s\n'
                 f' Consensus latency: {round(consensus_latency):,} ms\n'
                 f' Consensus leader latency: {round(leader_consensus_latency):,} ms\n'
                 f' Consensus non leader latency: {round(non_leader_consensus_latency):,} ms\n'

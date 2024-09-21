@@ -25,12 +25,12 @@ def local(ctx, debug=False, consensus_only=False):
     }
     node_params = {
         'consensus_only': consensus_only,
-        'header_size': 50_000,  # bytes
+        'header_size': 51200,  # bytes
         'max_header_delay': 1_000,  # ms
         'gc_depth': 50,  # rounds
         'sync_retry_delay': 10_000,  # ms
         'sync_retry_nodes': 3,  # number of nodes
-        'batch_size': 50_000,  # bytescd
+        'batch_size': 51200,  # bytescd
         'tx_size': bench_params['tx_size'],
         'max_batch_delay': 200,  # ms
         'leaders_per_round': 7,
@@ -109,7 +109,7 @@ def remote(ctx, burst = 50, debug=False, consensus_only=False):
         'collocate': True,
         'rate': [100000],
         'tx_size': 512,
-        'duration': 180,
+        'duration': 90,
         'runs': 1,
         'burst' : [burst],
     } 
@@ -120,7 +120,7 @@ def remote(ctx, burst = 50, debug=False, consensus_only=False):
 
     node_params = {
         'consensus_only': consensus_only,
-        'header_size': 512000,  # bytes
+        'header_size': 512_000,  # bytes
         'max_header_delay': 5_000,  # ms
         'gc_depth': 50,  # rounds
         'sync_retry_delay': 10_000,  # ms
@@ -128,7 +128,7 @@ def remote(ctx, burst = 50, debug=False, consensus_only=False):
         'batch_size': 512_000,
         'tx_size': bench_params['tx_size'],  # bytes
         'max_batch_delay': 200,  # ms
-        'leaders_per_round': 7,
+        'leaders_per_round': 10,
         'total_clan' : bench_params['total_clan']
     }
     try:

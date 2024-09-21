@@ -647,7 +647,7 @@ impl Core {
                         .verify(&committee, &sorted_keys, &combined_key)
                         .map_err(DagError::from)
                         .unwrap();
-                    info!(
+                    debug!(
                         "Certificate verified for header {:?} round {:?}",
                         certificate.header_id, certificate.round
                     );
