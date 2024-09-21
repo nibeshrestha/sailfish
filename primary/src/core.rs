@@ -84,7 +84,6 @@ pub struct Core {
     processing_headers: HashMap<Digest, Header>,
     processing_header_infos: HashMap<Digest, HeaderInfo>,
     processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
-    processed_headers: HashSet<Digest>,
     /// Aggregates certificates to use as parents for new headers.
     certificates_aggregators: HashMap<Round, Box<CertificatesAggregator>>,
     /// A network sender to send the batches to the other workers.
@@ -159,7 +158,6 @@ impl Core {
                 processing_headers: HashMap::new(),
                 processing_header_infos: HashMap::new(),
                 processing_vote_aggregators: HashMap::new(),
-                processed_headers: HashSet::new(),
                 certificates_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 network: ReliableSender::new(),
                 cancel_handlers: HashMap::with_capacity(2 * gc_depth as usize),
@@ -303,7 +301,6 @@ impl Core {
         match header_msg {
             HeaderMessage::Header(header) => {
                 debug!("Processing {:?}", header);
-                info!("received header {:?} round {:?}", header.id, header.round);
 
                 // Indicate that we are processing this header.
                 self.processing_headers
@@ -374,15 +371,6 @@ impl Core {
                     }
                 }
 
-                //NO NEED TO CHECK FOR MISSING PAYLOAD BECAUSE HEADER ITSELF CONTAINS TRANSACTIONS.
-
-                // // Ensure we have the payload. If we don't, the synchronizer will ask our workers to get it, and then
-                // // reschedule processing of this header once we have it.
-                // if self.synchronizer.missing_payload(header).await? {
-                //     debug!("Processing of {} suspended: missing payload", header);
-                //     return Ok(());
-                // }
-
                 // Store the header.
                 let bytes = bincode::serialize(header_msg).expect("Failed to serialize header");
                 self.store.write(header.id.to_vec(), bytes).await;
@@ -421,10 +409,6 @@ impl Core {
 
             HeaderMessage::HeaderInfo(header_info) => {
                 debug!("Processing {:?}", header_info);
-                info!(
-                    "received header info {:?} round {:?}",
-                    header_info.id, header_info.round
-                );
 
                 // Indicate that we are processing this header.
                 self.processing_header_infos
@@ -450,8 +434,7 @@ impl Core {
                         );
                         return Ok(());
                     }
-                    
-                    //info!("{:?}", parents);
+
                     //Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
                     let mut stake = 0;
                     let mut has_leader = false;
@@ -499,15 +482,6 @@ impl Core {
                         }
                     }
                 }
-
-                //NO NEED TO CHECK FOR MISSING PAYLOAD BECAUSE HEADER ITSELF CONTAINS TRANSACTIONS.
-
-                // // Ensure we have the payload. If we don't, the synchronizer will ask our workers to get it, and then
-                // // reschedule processing of this header once we have it.
-                // if self.synchronizer.missing_payload(header).await? {
-                //     debug!("Processing of {} suspended: missing payload", header);
-                //     return Ok(());
-                // }
 
                 // Store the header.
                 let bytes =
@@ -646,7 +620,6 @@ impl Core {
             // Add it to the votes' aggregator and try to make a new certificate.
             if let Some(certificate) = vote_aggregator.append(vote, &self.committee, &self.clan)? {
                 debug!("Assembled {:?}", certificate);
-                self.processed_headers.insert(certificate.header_id.clone());
 
                 // Broadcast the certificate.
                 let addresses = self
@@ -839,25 +812,23 @@ impl Core {
             DagError::TooOld(certificate.digest(), certificate.round())
         );
 
-        if !self.processed_headers.contains(&certificate.header_id) {
-            // Verify the certificate (and the embedded header).
-            let committee = Arc::clone(&self.committee);
-            let sorted_keys = Arc::clone(&self.sorted_keys);
-            let tx_primary = tx_primary.clone();
-            let combined_key = Arc::clone(&self.combined_pubkey);
+        // // Verify the certificate (and the embedded header).
+        // let committee = Arc::clone(&self.committee);
+        // let sorted_keys = Arc::clone(&self.sorted_keys);
+        // let tx_primary = tx_primary.clone();
+        // let combined_key = Arc::clone(&self.combined_pubkey);
 
-            tokio::task::spawn_blocking(move || {
-                certificate
-                    .verify(&committee, &sorted_keys, &combined_key)
-                    .map_err(DagError::from)
-                    .unwrap();
-                info!(
-                    "ExtCertificate verified for header {:?} round {:?}",
-                    certificate.header_id, certificate.round
-                );
-                let _ = tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
-            });
-        }
+        // tokio::task::spawn_blocking(move || {
+        //     certificate
+        //         .verify(&committee, &sorted_keys, &combined_key)
+        //         .map_err(DagError::from)
+        //         .unwrap();
+        //     info!(
+        //         "ExtCertificate verified for header {:?} round {:?}",
+        //         certificate.header_id, certificate.round
+        //     );
+        //     let _ = tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
+        // });
 
         Ok(())
     }

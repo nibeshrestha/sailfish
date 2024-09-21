@@ -14,9 +14,9 @@ def local(ctx, debug=False, consensus_only=False):
     ''' Run benchmarks on localhost '''
     bench_params = {
         'faults': 0,
-        'tribe_size': 4,
+        'tribe_size': 10,
         "total_clan" : 2,
-        "clan_info" : [[2,1],[2,1]],
+        "clan_info" : [[5,2],[5,2]],
         'workers': 1,
         'rate': 100_000,
         'tx_size': 512,
@@ -33,7 +33,7 @@ def local(ctx, debug=False, consensus_only=False):
         'batch_size': 50_000,  # bytescd
         'tx_size': bench_params['tx_size'],
         'max_batch_delay': 200,  # ms
-        'leaders_per_round': 3,
+        'leaders_per_round': 7,
         'total_clan' : bench_params['total_clan']
     }
     try:
@@ -98,13 +98,13 @@ def install(ctx):
 
 
 @task
-def remote(ctx, burst = 50, debug=False, consensus_only=True):
+def remote(ctx, burst = 50, debug=False, consensus_only=False):
     ''' Run benchmarks on GCP '''
     bench_params = {
         'faults': 0,
         'tribe_size': 10,
         "total_clan" : 2,
-        "clan_info" : [[5,1],[5,1]],
+        "clan_info" : [[5,2],[5,2]],
         'workers': 1,
         'collocate': True,
         'rate': [100000],
@@ -128,7 +128,7 @@ def remote(ctx, burst = 50, debug=False, consensus_only=True):
         'batch_size': 512_000,
         'tx_size': bench_params['tx_size'],  # bytes
         'max_batch_delay': 200,  # ms
-        'leaders_per_round': 3,
+        'leaders_per_round': 7,
         'total_clan' : bench_params['total_clan']
     }
     try:
