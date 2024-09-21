@@ -344,7 +344,7 @@ async fn process_certificates() {
         rx_timeout,
         tx_consensus,
         /* tx_proposer */ tx_parents,
-        tx_timeout_cert
+        tx_timeout_cert,
     );
 
     // Send enough certificates to the core.

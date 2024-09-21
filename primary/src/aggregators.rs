@@ -124,7 +124,7 @@ impl CertificatesAggregator {
         debug!("Got all leader for round {}", certificate.round());
 
         if self.weight >= committee.quorum_threshold() {
-            self.weight = 0; // Ensures quorum is only reached once.
+            // self.weight = 0; // Ensures quorum is only reached once.
             return Ok(Some(self.certificates.drain(..).collect()));
         }
         Ok(None)
