@@ -80,7 +80,6 @@ pub struct Core {
     // votes_aggregator: VotesAggregator,
     processing_headers: HashMap<Digest, Header>,
     processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
-    processed_headers: HashSet<Digest>,
     /// Aggregates certificates to use as parents for new headers.
     certificates_aggregators: HashMap<Round, Box<CertificatesAggregator>>,
     /// A network sender to send the batches to the other workers.
@@ -152,7 +151,6 @@ impl Core {
                 last_voted: HashMap::with_capacity(2 * gc_depth as usize),
                 processing_headers: HashMap::new(),
                 processing_vote_aggregators: HashMap::new(),
-                processed_headers: HashSet::new(),
                 certificates_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 network: ReliableSender::new(),
                 cancel_handlers: HashMap::with_capacity(2 * gc_depth as usize),
@@ -261,7 +259,6 @@ impl Core {
         tx_primary: &Arc<Sender<PrimaryMessage>>,
     ) -> DagResult<()> {
         debug!("Processing {:?}", header);
-        info!("received header {:?} round {:?}", header.id, header.round);
 
         // Send header to consensus
         self.tx_consensus_header
@@ -289,7 +286,6 @@ impl Core {
                 debug!("Processing of {} suspended: missing parent(s)", header.id);
                 return Ok(());
             }
-            info!("{:?}", parents);
             //Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
             let mut stake = 0;
             let mut has_leader = false;
@@ -462,7 +458,7 @@ impl Core {
             // Add it to the votes' aggregator and try to make a new certificate.
             if let Some(certificate) = vote_aggregator.append(vote, &self.committee)? {
                 debug!("Assembled {:?}", certificate);
-                self.processed_headers.insert(certificate.header_id.clone());
+                // self.processed_headers.insert(certificate.header_id.clone());
 
                 // Broadcast the certificate.
                 let addresses = self
@@ -628,25 +624,25 @@ impl Core {
             DagError::TooOld(certificate.digest(), certificate.round())
         );
 
-        if !self.processed_headers.contains(&certificate.header_id) {
-            // Verify the certificate (and the embedded header).
-            let committee = Arc::clone(&self.committee);
-            let sorted_keys = Arc::clone(&self.sorted_keys);
-            let tx_primary = tx_primary.clone();
-            let combined_key = Arc::clone(&self.combined_pubkey);
+        // if !self.processed_headers.contains(&certificate.header_id) {
+        //     // Verify the certificate (and the embedded header).
+        //     let committee = Arc::clone(&self.committee);
+        //     let sorted_keys = Arc::clone(&self.sorted_keys);
+        //     let tx_primary = tx_primary.clone();
+        //     let combined_key = Arc::clone(&self.combined_pubkey);
 
-            tokio::task::spawn_blocking(move || {
-                certificate
-                    .verify(&committee, &sorted_keys, &combined_key)
-                    .map_err(DagError::from)
-                    .unwrap();
-                info!(
-                    "ExtCertificate verified for header {:?} round {:?}",
-                    certificate.header_id, certificate.round
-                );
-                let _ = tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
-            });
-        }
+        //     tokio::task::spawn_blocking(move || {
+        //         certificate
+        //             .verify(&committee, &sorted_keys, &combined_key)
+        //             .map_err(DagError::from)
+        //             .unwrap();
+        //         info!(
+        //             "ExtCertificate verified for header {:?} round {:?}",
+        //             certificate.header_id, certificate.round
+        //         );
+        //         let _ = tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
+        //     });
+        // }
 
         Ok(())
     }

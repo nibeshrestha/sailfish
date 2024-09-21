@@ -56,20 +56,6 @@ impl VotesAggregator {
         if self.weight >= committee.quorum_threshold() {
             self.weight = 0; // Ensures quorum is only reached once.
 
-            // let mut ids = Vec::new();
-            // for idx in 0..committee.size() {
-            //     let x = idx / 128;
-            //     let chunk = self.pk_bit_vec[x];
-            //     let ridx = idx - x * 128;
-            //     if chunk & 1 << ridx != 0 {
-            //         ids.push(idx);
-            //     }
-            // }
-
-            // let agg_pk = remove_pubkeys(combined_key, ids, &self.sorted_keys);
-            // // for checking aggregated sign
-            // SignatureShareG1::verify_batch(&vote.digest().0, &agg_pk, &self.agg_sign).unwrap();
-
             return Ok(Some(Certificate {
                 header_id: vote.id,
                 round: vote.round,
