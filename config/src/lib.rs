@@ -118,6 +118,7 @@ impl Parameters {
         info!("Batch size set to {} B", self.batch_size);
         info!("Max batch delay set to {} ms", self.max_batch_delay);
         info!("Leaders per round set to {}", self.leaders_per_round);
+        info!("Transaction size set to {} B", self.tx_size);
     }
 }
 

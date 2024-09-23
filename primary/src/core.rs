@@ -259,6 +259,7 @@ impl Core {
         tx_primary: &Arc<Sender<PrimaryMessage>>,
     ) -> DagResult<()> {
         debug!("Processing {:?}", header);
+        info!("received header {:?} round {}", header.id, header.round);
 
         // Send header to consensus
         self.tx_consensus_header
@@ -486,7 +487,7 @@ impl Core {
                         .verify(&committee, &sorted_keys, &combined_key)
                         .map_err(DagError::from)
                         .unwrap();
-                    info!(
+                    debug!(
                         "Certificate verified for header {:?} round {:?}",
                         certificate.header_id, certificate.round
                     );
@@ -546,7 +547,7 @@ impl Core {
 
         // Send it to the consensus layer.
         let id = certificate.header_id.clone();
-        info!("sending certificate {:?} to consensus", id);
+        debug!("sending certificate {:?} to consensus", id);
         if let Err(e) = self.tx_consensus.send(certificate).await {
             warn!(
                 "Failed to deliver certificate {} to the consensus: {}",
