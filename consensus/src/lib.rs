@@ -186,7 +186,7 @@ impl Consensus {
                         // Commit if we have QT
                         if current_stake_value >= self.committee.quorum_threshold() {
                             // Get an ordered list of past leaders that are linked to the current leader.
-                            debug!("Leader {:?} has enough support with header at round {}", leader, leader_round);
+                            info!("Leader {:?} has enough support with header at round {}", leader, leader_round);
                             let mut sequence = Vec::new();
                             for leader in self.order_leaders(leader, &state).iter().rev() {
                                 // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
