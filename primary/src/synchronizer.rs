@@ -138,9 +138,6 @@ impl Synchronizer {
     /// Check whether we have all the ancestors of the certificate. If we don't, send the certificate to
     /// the `CertificateWaiter` which will trigger re-processing once we have all the missing data.
     pub async fn deliver_certificate(&mut self, certificate: &Certificate) -> DagResult<bool> {
-        if certificate.round <= 1 {
-            return Ok(true);
-        }
         let key = certificate.header_id.to_vec();
 
         if let Some(head) = self.store.read(key).await.unwrap() {
