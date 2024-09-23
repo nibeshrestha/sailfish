@@ -423,6 +423,7 @@ impl Consensus {
         while let Some(x) = buffer.pop() {
             debug!("Sequencing {:?}", x);
             ordered.push(x.clone());
+            info!("Fetching header id {:?}", &x.header_id);
             let parents = state.parent_info.get(&x.header_id).unwrap();
 
             for parent in parents {
