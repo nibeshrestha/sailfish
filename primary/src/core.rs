@@ -707,7 +707,7 @@ impl Core {
 
         // Send it to the consensus layer.
         let id = certificate.header_id.clone();
-        info!("sending certificate {:?} to consensus", id);
+        debug!("sending certificate {:?} to consensus", id);
         if let Err(e) = self.tx_consensus.send(certificate).await {
             warn!(
                 "Failed to deliver certificate {} to the consensus: {}",

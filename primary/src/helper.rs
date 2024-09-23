@@ -3,7 +3,7 @@ use crate::primary::{HeaderMessage, PrimaryMessage};
 use bytes::Bytes;
 use config::Committee;
 use crypto::{Digest, PublicKey};
-use log::{error, warn};
+use log::{error, info, warn};
 use network::SimpleSender;
 use store::Store;
 use tokio::sync::mpsc::Receiver;
@@ -56,6 +56,7 @@ impl Helper {
                 match self.store.read(digest.to_vec()).await {
                     Ok(Some(data)) => {
                         // TODO: Remove this deserialization-serialization in the critical path.
+                        info!("From the helper");
                         let header_msg = bincode::deserialize(&data).unwrap();
                         let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(header_msg))
                             .expect("Failed to serialize our own certificate");
