@@ -1,9 +1,9 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::primary::{HeaderMessage, PrimaryMessage};
+use crate::{primary::{HeaderMessage, PrimaryMessage}, HeaderInfo};
 use bytes::Bytes;
-use config::Committee;
+use config::{Clan, Committee};
 use crypto::{Digest, PublicKey};
-use log::{error, info, warn};
+use log::{error, warn};
 use network::SimpleSender;
 use store::Store;
 use tokio::sync::mpsc::Receiver;
@@ -12,6 +12,7 @@ use tokio::sync::mpsc::Receiver;
 pub struct Helper {
     /// The committee information.
     committee: Committee,
+    clan: Clan,
     /// The persistent storage.
     store: Store,
     /// Input channel to receive certificates requests.
@@ -23,12 +24,14 @@ pub struct Helper {
 impl Helper {
     pub fn spawn(
         committee: Committee,
+        clan: Clan,
         store: Store,
         rx_primaries: Receiver<(Vec<Digest>, PublicKey)>,
     ) {
         tokio::spawn(async move {
             Self {
                 committee,
+                clan,
                 store,
                 rx_primaries,
                 network: SimpleSender::new(),
@@ -56,11 +59,20 @@ impl Helper {
                 match self.store.read(digest.to_vec()).await {
                     Ok(Some(data)) => {
                         // TODO: Remove this deserialization-serialization in the critical path.
-                        info!("From the helper");
                         let header_msg = bincode::deserialize(&data).unwrap();
-                        let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(header_msg))
-                            .expect("Failed to serialize our own certificate");
-                        self.network.send(address, Bytes::from(bytes)).await;
+
+                        if let HeaderMessage::Header(header) = header_msg {
+                            if self.clan.is_member(&origin) {
+                                let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(HeaderMessage::Header(header)))
+                                .expect("Failed to serialize our own certificate");
+                                self.network.send(address, Bytes::from(bytes)).await;
+                            }else {
+                                let header_info = HeaderInfo::create_from(header);
+                                let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(HeaderMessage::HeaderInfo(header_info)))
+                                .expect("Failed to serialize our own certificate");
+                                self.network.send(address, Bytes::from(bytes)).await;
+                            }
+                        }
                     }
                     Ok(None) => (),
                     Err(e) => error!("{}", e),

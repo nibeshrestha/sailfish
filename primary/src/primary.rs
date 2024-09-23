@@ -178,7 +178,7 @@ impl Primary {
             name,
             name_bls,
             Arc::new(committee.clone()),
-            Arc::new(clan),
+            Arc::new(clan.clone()),
             sorted_keys,
             Arc::new(combined_key),
             store.clone(),
@@ -253,7 +253,7 @@ impl Primary {
         );
 
         // The `Helper` is dedicated to reply to certificates requests from other primaries.
-        Helper::spawn(committee.clone(), store, rx_cert_requests);
+        Helper::spawn(committee.clone(), clan, store, rx_cert_requests);
 
         // NOTE: This log entry is used to compute performance.
         info!(
