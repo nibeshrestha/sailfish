@@ -182,7 +182,8 @@ impl Consensus {
 
                         let current_stake = self.stake_vote.get(&(leader.round, leader_digest.clone()));
                         let current_stake_value = *current_stake.unwrap_or(&0);
-
+                        
+                        info!("current_stake {} idx: {},  leaders_per_round: {}", current_stake_value, i, self.leaders_per_round);
                         // Commit if we have QT
                         if current_stake_value >= self.committee.quorum_threshold() {
                             // Get an ordered list of past leaders that are linked to the current leader.
