@@ -8,6 +8,7 @@ use crate::HeaderMessage;
 use config::Committee;
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
+use log::info;
 use store::Store;
 use tokio::sync::mpsc::Sender;
 
@@ -170,6 +171,7 @@ impl Synchronizer {
 
             Ok(true)
         } else {
+            info!("header not received id : {:?}", certificate.header_id);
             self.tx_certificate_waiter
                 .send(certificate.clone())
                 .await
