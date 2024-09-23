@@ -163,6 +163,9 @@ class LogParser:
             'transaction_size': int(
                 search(r'Transaction size .* (\d+)', log).group(1)
             ),
+            'leaders_per_round': int(
+                search(r'Leaders per round .* (\d+)', log).group(1)
+            ),
         }
 
         ip = search(r'booted on (\d+.\d+.\d+.\d+)', log).group(1)
@@ -282,7 +285,8 @@ class LogParser:
         else:
             consensus_tps = self._consensus_only_throughput()
 
-        csv_file_path = f'benchmark_{self.committee_size}_{header_size}_{batch_size}.csv'
+        leaders_per_round = self.configs[0]['leaders_per_round']
+        csv_file_path = f'benchmark_{self.committee_size}_{leaders_per_round}.csv'
         write_to_csv(round(leader_consensus_latency),round(non_leader_consensus_latency),round(consensus_tps), round(consensus_bps), round(consensus_latency),round(end_to_end_tps),round(end_to_end_bps), round(end_to_end_latency),self.burst,csv_file_path)
         
         if self.consensus_only:
