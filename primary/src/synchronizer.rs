@@ -168,7 +168,6 @@ impl Synchronizer {
 
             Ok(true)
         } else {
-            info!("header not received id : {:?}", certificate.header_id);
             self.tx_certificate_waiter
                 .send(certificate.clone())
                 .await
