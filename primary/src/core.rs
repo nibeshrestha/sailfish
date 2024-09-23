@@ -63,7 +63,7 @@ pub struct Core {
     /// Output all certificates to the consensus layer.
     tx_consensus: Sender<Certificate>,
     /// Send valid a quorum of certificates' ids to the `Proposer` (along with their round).
-    tx_proposer: Sender<(Vec<Certificate>, Round)>,
+    tx_proposer: Sender<(Vec<(Digest,Certificate)>, Round)>,
     /// Send a valid TimeoutCertificate along with the round to the `Proposer`.
     tx_timeout_cert: Sender<(TimeoutCert, Round)>,
     /// Send a valid NoVoteCert along with the round to the `Proposer`.
@@ -121,7 +121,7 @@ impl Core {
         rx_timeout: Receiver<Timeout>,
         rx_no_vote_msg: Receiver<NoVoteMsg>,
         tx_consensus: Sender<Certificate>,
-        tx_proposer: Sender<(Vec<Certificate>, Round)>,
+        tx_proposer: Sender<(Vec<(Digest,Certificate)>, Round)>,
         tx_timeout_cert: Sender<(TimeoutCert, Round)>,
         tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
         tx_consensus_header_msg: Sender<HeaderMessage>,
@@ -369,7 +369,12 @@ impl Core {
                             }
                         }
                     }
+                    // for parent in header.parents.clone() {
+                    //     self.process_certificate(parent.1).await.unwrap();
+                    // }
                 }
+
+                
 
                 // Store the header.
                 let bytes = bincode::serialize(header_msg).expect("Failed to serialize header");
@@ -481,7 +486,13 @@ impl Core {
                             }
                         }
                     }
+
+                    // for parent in header_info.parents.clone() {
+                    //     self.process_certificate(parent.1).await.unwrap();
+                    // }
                 }
+
+                
 
                 // Store the header.
                 let bytes =

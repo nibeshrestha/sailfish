@@ -70,13 +70,13 @@ impl CertificateWaiter {
                     if let Some(res) = self.store.read(key.clone()).await.unwrap() {
                         let header_msg = bincode::deserialize(&res).unwrap();
 
-                        let parents: BTreeSet<_>;
+                        let parents: Vec<_>;
                         match header_msg {
                             HeaderMessage::Header(header) => {
-                                parents = header.parents;
+                                parents = header.parents.iter().map(|x| x.0.clone()).collect();
                             }
                             HeaderMessage::HeaderInfo(header_info) => {
-                                parents = header_info.parents;
+                                parents = header_info.parents.iter().map(|x| x.0.clone()).collect();
                             }
                         }
 

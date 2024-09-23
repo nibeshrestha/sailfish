@@ -30,10 +30,10 @@ struct State {
 }
 
 impl State {
-    fn new(genesis: Vec<Certificate>) -> Self {
+    fn new(genesis: Vec<(Digest,Certificate)>) -> Self {
         let genesis = genesis
             .into_iter()
-            .map(|x| (x.origin(), (x.digest(), x)))
+            .map(|x| (x.1.origin(), (x.1.digest(), x.1)))
             .collect::<HashMap<_, _>>();
 
         Self {
@@ -82,7 +82,7 @@ pub struct Consensus {
     tx_output: Sender<Certificate>,
 
     /// The genesis certificates.
-    genesis: Vec<Certificate>,
+    genesis: Vec<(Digest,Certificate)>,
     /// The stake vote received by the leader of a round.
     stake_vote: HashMap<(Round, Digest), u32>,
     ///The total numbers of leaders in each round
@@ -135,14 +135,14 @@ impl Consensus {
                         HeaderMessage::Header(header) => {
                             debug!("Processing header {:?}", header);
                             h_id = header.id.clone();
-                            h_parents = header.parents.clone();
+                            h_parents = header.parents.iter().map(|x| x.0.clone()).collect();
                             h_round = header.round;
                             h_author = header.author;
                         }
                         HeaderMessage::HeaderInfo(header_info) => {
                             debug!("Processing header info {:?}", header_info);
                             h_id = header_info.id.clone();
-                            h_parents = header_info.parents.clone();
+                            h_parents = header_info.parents.iter().map(|x| x.0.clone()).collect();
                             h_round = header_info.round;
                             h_author = header_info.author;
                         }

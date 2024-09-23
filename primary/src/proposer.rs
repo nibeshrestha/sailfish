@@ -34,7 +34,7 @@ pub struct Proposer {
     consensus_only: bool,
 
     /// Receives the parents to include in the next header (along with their round number).
-    rx_core: Receiver<(Vec<Certificate>, Round)>,
+    rx_core: Receiver<(Vec<(Digest,Certificate)>, Round)>,
     /// Receives the batch digest from our workers.
     rx_workers: Receiver<Vec<Transaction>>,
     /// Sends newly created headers to the `Core`.
@@ -51,7 +51,7 @@ pub struct Proposer {
     /// The current round of the dag.
     round: Round,
     /// Holds the certificates' ids waiting to be included in the next header.
-    last_parents: Vec<Certificate>,
+    last_parents: Vec<(Digest,Certificate)>,
     /// Holds the certificate of the last leader (if any).
     last_leaders: Vec<Option<Certificate>>,
     /// Holds the txns waiting to be included in the next header.
@@ -77,7 +77,7 @@ impl Proposer {
         tx_size: usize,
         max_header_delay: u64,
         consensus_only: bool,
-        rx_core: Receiver<(Vec<Certificate>, Round)>,
+        rx_core: Receiver<(Vec<(Digest,Certificate)>, Round)>,
         rx_workers: Receiver<Vec<Transaction>>,
         tx_core: Sender<Header>,
         tx_core_timeout: Sender<Timeout>,
@@ -179,7 +179,7 @@ impl Proposer {
             self.name,
             self.round,
             payload,
-            self.last_parents.drain(..).map(|x| x.header_id).collect(),
+            self.last_parents.drain(..).map(|x| x).collect(),
             timeout_cert,
             no_vote_certs,
             &mut self.signature_service,
@@ -232,8 +232,7 @@ impl Proposer {
             self.last_leaders[i] = self
                 .last_parents
                 .iter()
-                .find(|x| x.origin() == leaders_name[i])
-                .cloned();
+                .find(|x| x.1.origin() == leaders_name[i]).map(|x| x.1.clone());
 
             if let Some(leader) = self.last_leaders[i].as_ref() {
                 debug!("Got leader {} for round {}", leader.origin(), self.round);
@@ -250,7 +249,7 @@ impl Proposer {
 
         // Extract authors from the last leaders' certificates
         let last_leader_authors: Vec<_> =
-            self.last_parents.iter().map(|cert| &cert.origin).collect();
+            self.last_parents.iter().map(|x| &x.1.origin).collect();
 
         // Filter out the public keys that are in current_leaders but not in last_leader_authors
         let nvm_leaders: Vec<_> = current_leaders

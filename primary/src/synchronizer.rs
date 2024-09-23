@@ -90,13 +90,13 @@ impl Synchronizer {
         &mut self,
         header_msg: &HeaderMessage,
     ) -> DagResult<Vec<HeaderMessage>> {
-        let h_parents: BTreeSet<Digest>;
+        let h_parents: Vec<Digest>;
         match header_msg {
             HeaderMessage::Header(header) => {
-                h_parents = header.parents.clone();
+                h_parents = header.parents.iter().map(|x| x.0.clone()).collect();
             }
             HeaderMessage::HeaderInfo(header_info) => {
-                h_parents = header_info.parents.clone();
+                h_parents = header_info.parents.iter().map(|x| x.0.clone()).collect();
             }
         }
 
@@ -143,14 +143,14 @@ impl Synchronizer {
         let key = certificate.header_id.to_vec();
 
         if let Some(head) = self.store.read(key).await.unwrap() {
-            let parents: BTreeSet<Digest>;
+            let parents: Vec<Digest>;
             let header_msg: HeaderMessage = bincode::deserialize(&head).unwrap();
             match header_msg {
                 HeaderMessage::Header(header) => {
-                    parents = header.parents.clone();
+                    parents = header.parents.iter().map(|x| x.0.clone()).collect();
                 }
                 HeaderMessage::HeaderInfo(header_info) => {
-                    parents = header_info.parents.clone();
+                    parents = header_info.parents.iter().map(|x| x.0.clone()).collect();
                 }
             }
 

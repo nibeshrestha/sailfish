@@ -3,7 +3,7 @@ use crate::error::{DagError, DagResult};
 use crate::messages::{Certificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, Vote};
 use blsttc::{PublicKeyShareG2, SignatureShareG1};
 use config::{Clan, Committee, Stake};
-use crypto::{aggregate_sign, PublicKey, Signature};
+use crypto::{aggregate_sign, Digest, PublicKey, Signature};
 use log::debug;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -83,7 +83,7 @@ impl VotesAggregator {
 /// Aggregate certificates and check if we reach a quorum.
 pub struct CertificatesAggregator {
     weight: Stake,
-    certificates: Vec<Certificate>,
+    certificates: Vec<(Digest,Certificate)>,
     used: HashSet<PublicKey>,
 }
 
@@ -101,7 +101,7 @@ impl CertificatesAggregator {
         certificate: Certificate,
         committee: &Committee,
         leaders_per_round: usize,
-    ) -> DagResult<Option<Vec<Certificate>>> {
+    ) -> DagResult<Option<Vec<(Digest,Certificate)>>> {
         let origin = certificate.origin();
 
         // Ensure it is the first time this authority votes.
@@ -111,7 +111,7 @@ impl CertificatesAggregator {
 
         let round = certificate.round;
 
-        self.certificates.push(certificate.clone());
+        self.certificates.push((certificate.header_id,certificate.clone()));
         self.weight += committee.stake(&origin);
 
         let leaders = committee.leader_list(leaders_per_round, round as usize);

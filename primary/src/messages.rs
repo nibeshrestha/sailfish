@@ -10,7 +10,7 @@ use crypto::{
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::convert::TryInto;
 use std::fmt;
 
@@ -19,7 +19,7 @@ pub struct Header {
     pub author: PublicKey,
     pub round: Round,
     pub payload: Vec<Transaction>,
-    pub parents: BTreeSet<Digest>,
+    pub parents: Vec<(Digest, Certificate)>,
     pub id: Digest,
     pub signature: Signature,
     pub timeout_cert: TimeoutCert,
@@ -31,7 +31,7 @@ impl Header {
         author: PublicKey,
         round: Round,
         payload: Vec<Transaction>,
-        parents: BTreeSet<Digest>,
+        parents: Vec<(Digest, Certificate)>,
         timeout_cert: TimeoutCert,
         no_vote_certs: Vec<NoVoteCert>,
         signature_service: &mut SignatureService,
@@ -47,7 +47,7 @@ impl Header {
             no_vote_certs,
         };
         let id = header.digest();
-        let signature = signature_service.request_signature(id.clone()).await;
+        let signature = signature_service.request_signature(id).await;
         Self {
             id,
             signature,
@@ -89,7 +89,7 @@ impl Hash for Header {
             hasher.update(x);
         }
         for x in &self.parents {
-            hasher.update(x);
+            hasher.update(x.0);
         }
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
@@ -112,7 +112,7 @@ pub struct HeaderInfo {
     pub author: PublicKey,
     pub round: Round,
     pub payload: Digest,
-    pub parents: BTreeSet<Digest>,
+    pub parents: Vec<(Digest, Certificate)>,
     pub id: Digest,
     pub signature: Signature,
     pub timeout_cert: TimeoutCert,
@@ -317,7 +317,7 @@ impl Vote {
         bls_signature_service: &mut BlsSignatureService,
     ) -> Self {
         let vote = Self {
-            id: header_info.id.clone(),
+            id: header_info.id,
             round: header_info.round,
             origin: header_info.author,
             author: *author,
@@ -469,11 +469,11 @@ pub struct Certificate {
 }
 
 impl Certificate {
-    pub fn genesis(committee: &Committee) -> Vec<Self> {
+    pub fn genesis(committee: &Committee) -> Vec<(Digest,Self)> {
         committee
             .authorities
             .keys()
-            .map(|name| Self { ..Self::default() })
+            .map(|name| (Digest::default(), Self::default() ))
             .collect()
     }
 
@@ -484,7 +484,7 @@ impl Certificate {
         combined_pubkey: &PublicKeyShareG2,
     ) -> DagResult<()> {
         // Genesis certificates are always valid.
-        if Self::genesis(committee).contains(self) {
+        if Self::genesis(committee).contains(&(self.header_id, self.to_owned())) {
             return Ok(());
         }
 

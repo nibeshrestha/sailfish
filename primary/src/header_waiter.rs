@@ -230,15 +230,15 @@ impl HeaderWaiter {
                 Some(result) = waiting.next() => match result {
                     Ok(Some(header_msg)) => {
                         let id : Digest;
-                        let parents : BTreeSet<Digest>;
+                        let parents : Vec<Digest>;
                         match header_msg.clone() {
                             HeaderMessage::Header(header) => {
                                 id = header.id.clone();
-                                parents = header.parents.clone();
+                                parents = header.parents.iter().map(|x| x.0.clone()).collect();
                             }
                             HeaderMessage::HeaderInfo(header_info) => {
                                 id = header_info.id.clone();
-                                parents = header_info.parents.clone();
+                                parents = header_info.parents.iter().map(|x| x.0.clone()).collect();
                             }
                         }
                         let _ = self.pending.remove(&id);
