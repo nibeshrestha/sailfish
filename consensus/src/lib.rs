@@ -183,11 +183,10 @@ impl Consensus {
                         let current_stake = self.stake_vote.get(&(leader.round, leader_digest.clone()));
                         let current_stake_value = *current_stake.unwrap_or(&0);
                         
-                        info!("current_stake {} idx: {},  leaders_per_round: {}", current_stake_value, i, self.leaders_per_round);
                         // Commit if we have QT
                         if current_stake_value >= self.committee.quorum_threshold() {
                             // Get an ordered list of past leaders that are linked to the current leader.
-                            info!("Leader {:?} has enough support with header at round {}", leader, leader_round);
+                            debug!("Leader {:?} has enough support with header at round {}", leader, leader_round);
                             let mut sequence = Vec::new();
                             for leader in self.order_leaders(leader, &state).iter().rev() {
                                 // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
