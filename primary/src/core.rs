@@ -312,6 +312,8 @@ impl Core {
                         self.sorted_keys.clone(),
                         self.committee.size(),
                     ));
+                
+                info!("received header {:?}", header.id);
 
                 // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
                 // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
@@ -409,6 +411,7 @@ impl Core {
 
             HeaderMessage::HeaderInfo(header_info) => {
                 debug!("Processing {:?}", header_info);
+                info!("received header info {:?}", header_info.id);
 
                 // Indicate that we are processing this header.
                 self.processing_header_infos
@@ -663,7 +666,7 @@ impl Core {
     #[async_recursion]
     async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
         debug!("Processing {:?}", certificate);
-
+        info!("received cert for header {:?}", certificate.header_id);
         // Process the header embedded in the certificate if we haven't already voted for it (if we already
         // voted, it means we already processed it). Since this header got certified, we are sure that all
         // the data it refers to (ie. its payload and its parents) are available. We can thus continue the
@@ -686,6 +689,7 @@ impl Core {
             );
             return Ok(());
         }
+        info!("delivered cert for header {:?}", certificate.header_id);
 
         // Store the certificate.
         let bytes = bincode::serialize(&certificate).expect("Failed to serialize certificate");
