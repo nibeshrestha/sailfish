@@ -313,7 +313,7 @@ impl Core {
                         self.committee.size(),
                     ));
                 
-                info!("received header {:?}", header.id);
+                info!("received header {:?} {}", header.id, header.round);
 
                 // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
                 // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
@@ -411,7 +411,7 @@ impl Core {
 
             HeaderMessage::HeaderInfo(header_info) => {
                 debug!("Processing {:?}", header_info);
-                info!("received header info {:?}", header_info.id);
+                info!("received header info {:?} {}", header_info.id, header_info.round);
 
                 // Indicate that we are processing this header.
                 self.processing_header_infos
