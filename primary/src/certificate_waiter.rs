@@ -73,10 +73,10 @@ impl CertificateWaiter {
                         let parents: Vec<_>;
                         match header_msg {
                             HeaderMessage::Header(header) => {
-                                parents = header.parents.iter().map(|x| x.0.clone()).collect();
+                                parents = header.parents.iter().map(|x| x.0).collect();
                             }
                             HeaderMessage::HeaderInfo(header_info) => {
-                                parents = header_info.parents.iter().map(|x| x.0.clone()).collect();
+                                parents = header_info.parents.iter().map(|x| x.0).collect();
                             }
                         }
 
@@ -88,6 +88,7 @@ impl CertificateWaiter {
 
                         let fut = Self::waiter(wait_for, certificate);
                         waiting.push(fut);
+                        
                     }else{
                         let wait_for = vec![(key, self.store.clone())];
                         let fut = Self::waiter(wait_for, certificate);

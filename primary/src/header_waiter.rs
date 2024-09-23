@@ -233,12 +233,12 @@ impl HeaderWaiter {
                         let parents : Vec<Digest>;
                         match header_msg.clone() {
                             HeaderMessage::Header(header) => {
-                                id = header.id.clone();
-                                parents = header.parents.iter().map(|x| x.0.clone()).collect();
+                                id = header.id;
+                                parents = header.parents.iter().map(|x| x.0).collect();
                             }
                             HeaderMessage::HeaderInfo(header_info) => {
-                                id = header_info.id.clone();
-                                parents = header_info.parents.iter().map(|x| x.0.clone()).collect();
+                                id = header_info.id;
+                                parents = header_info.parents.iter().map(|x| x.0).collect();
                             }
                         }
                         let _ = self.pending.remove(&id);

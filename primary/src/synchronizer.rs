@@ -93,10 +93,10 @@ impl Synchronizer {
         let h_parents: Vec<Digest>;
         match header_msg {
             HeaderMessage::Header(header) => {
-                h_parents = header.parents.iter().map(|x| x.0.clone()).collect();
+                h_parents = header.parents.iter().map(|x| x.0).collect();
             }
             HeaderMessage::HeaderInfo(header_info) => {
-                h_parents = header_info.parents.iter().map(|x| x.0.clone()).collect();
+                h_parents = header_info.parents.iter().map(|x| x.0).collect();
             }
         }
 
@@ -147,10 +147,10 @@ impl Synchronizer {
             let header_msg: HeaderMessage = bincode::deserialize(&head).unwrap();
             match header_msg {
                 HeaderMessage::Header(header) => {
-                    parents = header.parents.iter().map(|x| x.0.clone()).collect();
+                    parents = header.parents.iter().map(|x| x.0).collect();
                 }
                 HeaderMessage::HeaderInfo(header_info) => {
-                    parents = header_info.parents.iter().map(|x| x.0.clone()).collect();
+                    parents = header_info.parents.iter().map(|x| x.0).collect();
                 }
             }
 

@@ -234,10 +234,10 @@ impl Core {
         // Reset the votes aggregator.
         let sorted_keys = Arc::clone(&self.sorted_keys);
         self.processing_headers
-            .entry(header.id.clone())
+            .entry(header.id)
             .or_insert(header.clone());
         self.processing_vote_aggregators
-            .entry(header.id.clone())
+            .entry(header.id)
             .or_insert(VotesAggregator::new(sorted_keys, self.committee.size()));
 
         // Broadcast the new header in a reliable manner to clan members.
@@ -304,10 +304,10 @@ impl Core {
 
                 // Indicate that we are processing this header.
                 self.processing_headers
-                    .entry(header.id.clone())
+                    .entry(header.id)
                     .or_insert(header.clone());
                 self.processing_vote_aggregators
-                    .entry(header.id.clone())
+                    .entry(header.id)
                     .or_insert(VotesAggregator::new(
                         self.sorted_keys.clone(),
                         self.committee.size(),
@@ -342,7 +342,7 @@ impl Core {
                         }
                         ensure!(
                             x_round + 1 == header.round,
-                            DagError::MalformedHeader(header.id.clone())
+                            DagError::MalformedHeader(header.id)
                         );
                         stake += self.committee.stake(&x_author);
 
@@ -354,7 +354,7 @@ impl Core {
                     }
                     ensure!(
                         stake >= self.committee.quorum_threshold(),
-                        DagError::HeaderRequiresQuorum(header.id.clone())
+                        DagError::HeaderRequiresQuorum(header.id)
                     );
 
                     if !has_leader {
@@ -417,10 +417,10 @@ impl Core {
 
                 // Indicate that we are processing this header.
                 self.processing_header_infos
-                    .entry(header_info.id.clone())
+                    .entry(header_info.id)
                     .or_insert(header_info.clone());
                 self.processing_vote_aggregators
-                    .entry(header_info.id.clone())
+                    .entry(header_info.id)
                     .or_insert(VotesAggregator::new(
                         self.sorted_keys.clone(),
                         self.committee.size(),
@@ -459,7 +459,7 @@ impl Core {
 
                         ensure!(
                             x_round + 1 == header_info.round,
-                            DagError::MalformedHeader(header_info.id.clone())
+                            DagError::MalformedHeader(header_info.id)
                         );
                         stake += self.committee.stake(&x_author);
 
@@ -471,7 +471,7 @@ impl Core {
                     }
                     ensure!(
                         stake >= self.committee.quorum_threshold(),
-                        DagError::HeaderRequiresQuorum(header_info.id.clone())
+                        DagError::HeaderRequiresQuorum(header_info.id)
                     );
 
                     if !has_leader {
@@ -717,7 +717,7 @@ impl Core {
         }
 
         // Send it to the consensus layer.
-        let id = certificate.header_id.clone();
+        let id = certificate.header_id;
         info!("sending certificate {:?} to consensus", id);
         if let Err(e) = self.tx_consensus.send(certificate).await {
             warn!(
@@ -735,7 +735,7 @@ impl Core {
             HeaderMessage::Header(header) => {
                 ensure!(
                     self.gc_round <= header.round,
-                    DagError::TooOld(header.id.clone(), header.round)
+                    DagError::TooOld(header.id, header.round)
                 );
 
                 // Verify the header's signature.
@@ -746,7 +746,7 @@ impl Core {
             HeaderMessage::HeaderInfo(header_info) => {
                 ensure!(
                     self.gc_round <= header_info.round,
-                    DagError::TooOld(header_info.id.clone(), header_info.round)
+                    DagError::TooOld(header_info.id, header_info.round)
                 );
 
                 // Verify the header's signature.
@@ -792,7 +792,7 @@ impl Core {
             // Ensure we receive a vote on the expected header.
             ensure!(
                 vote.id == header.id && vote.origin == header.author && vote.round == header.round,
-                DagError::UnexpectedVote(vote.id.clone())
+                DagError::UnexpectedVote(vote.id)
             );
         } else if let Some(header_info) = self.processing_header_infos.get(&vote.id) {
             ensure!(
@@ -805,7 +805,7 @@ impl Core {
                 vote.id == header_info.id
                     && vote.origin == header_info.author
                     && vote.round == header_info.round,
-                DagError::UnexpectedVote(vote.id.clone())
+                DagError::UnexpectedVote(vote.id)
             );
         }
         Ok(())
