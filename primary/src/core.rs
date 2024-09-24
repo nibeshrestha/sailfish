@@ -315,6 +315,14 @@ impl Core {
                     .await
                     .expect("Failed to send certificate");
             }
+            
+            let id = certificate.header_id;
+            if let Err(e) = self.tx_consensus.send(certificate).await {
+                warn!(
+                    "Failed to deliver certificate {} to the consensus: {}",
+                    id, e
+                );
+            }
         }
         Ok(())
     }
