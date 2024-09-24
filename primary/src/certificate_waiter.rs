@@ -1,8 +1,6 @@
-use std::collections::BTreeSet;
-
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
-use crate::messages::{Certificate, Header};
+use crate::messages::Certificate;
 use crate::primary::HeaderMessage;
 use futures::future::try_join_all;
 use futures::stream::futures_unordered::FuturesUnordered;
@@ -70,7 +68,7 @@ impl CertificateWaiter {
                     if let Some(res) = self.store.read(key.clone()).await.unwrap() {
                         let header_msg = bincode::deserialize(&res).unwrap();
 
-                        let parents: BTreeSet<_>;
+                        let parents: Vec<_>;
                         match header_msg {
                             HeaderMessage::Header(header) => {
                                 parents = header.parents;
@@ -83,7 +81,7 @@ impl CertificateWaiter {
                         let wait_for = parents
                         .iter()
                         .cloned()
-                        .map(|x| (x.to_vec(), self.store.clone()))
+                        .map(|x| (x.header_id.to_vec(), self.store.clone()))
                         .collect();
 
                         let fut = Self::waiter(wait_for, certificate);

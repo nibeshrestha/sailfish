@@ -3,8 +3,7 @@ use crate::batch_maker::Transaction;
 use crate::messages::{Certificate, Header, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert};
 use crate::primary::Round;
 use config::Committee;
-use crypto::Hash as _;
-use crypto::{Digest, PublicKey, SignatureService};
+use crypto::{PublicKey, SignatureService};
 #[cfg(feature = "benchmark")]
 use log::info;
 use log::{debug, warn};
@@ -179,7 +178,7 @@ impl Proposer {
             self.name,
             self.round,
             payload,
-            self.last_parents.drain(..).map(|x| x.header_id).collect(),
+            self.last_parents.drain(..).collect(),
             timeout_cert,
             no_vote_certs,
             &mut self.signature_service,

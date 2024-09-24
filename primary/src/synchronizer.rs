@@ -1,12 +1,9 @@
-use std::collections::BTreeSet;
-
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::DagResult;
 use crate::header_waiter::WaiterMessage;
-use crate::messages::{Certificate, Header, HeaderInfo};
+use crate::messages::{Certificate, Header};
 use crate::HeaderMessage;
 use config::Committee;
-use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
 use log::info;
 use store::Store;
@@ -91,7 +88,8 @@ impl Synchronizer {
         &mut self,
         header_msg: &HeaderMessage,
     ) -> DagResult<Vec<HeaderMessage>> {
-        let h_parents: BTreeSet<Digest>;
+        let h_parents: Vec<_>;
+        
         match header_msg {
             HeaderMessage::Header(header) => {
                 h_parents = header.parents.clone();
@@ -101,13 +99,16 @@ impl Synchronizer {
             }
         }
 
+        use std::time::Instant;
+        let now = Instant::now();
+
         let mut missing = Vec::new();
         let mut parents = Vec::new();
-        for digest in &h_parents {
+        for cert in &h_parents {
             if let Some(genesis) = self
                 .genesis
                 .iter()
-                .find(|(x, _)| x == digest)
+                .find(|(x, _)| x == &cert.header_id)
                 .map(|(_, x)| x)
             {
                 let genesis_header_msg = HeaderMessage::Header(genesis.clone());
@@ -115,14 +116,19 @@ impl Synchronizer {
                 continue;
             }
 
-            match self.store.read(digest.to_vec()).await? {
+            let now = Instant::now();
+
+            match self.store.read(cert.header_id.to_vec()).await? {
                 Some(h) => {
                     let header_msg: HeaderMessage = bincode::deserialize(&h).unwrap();
                     parents.push(header_msg)
                 }
-                None => missing.push(digest.clone()),
+                None => missing.push(cert.header_id.clone()),
             };
+            let elapsed = now.elapsed();
+            info!("Elapsed: {:.2?}", elapsed);
         }
+        
 
         if missing.is_empty() {
             return Ok(parents);
@@ -141,23 +147,23 @@ impl Synchronizer {
         let key = certificate.header_id.to_vec();
 
         if let Some(head) = self.store.read(key).await.unwrap() {
-            let parents: BTreeSet<Digest>;
+            let parents: Vec<_>;
             let header_msg: HeaderMessage = bincode::deserialize(&head).unwrap();
             match header_msg {
                 HeaderMessage::Header(header) => {
-                    parents = header.parents.clone();
+                    parents = header.parents;
                 }
                 HeaderMessage::HeaderInfo(header_info) => {
-                    parents = header_info.parents.clone();
+                    parents = header_info.parents;
                 }
             }
 
-            for digest in &parents {
-                if self.genesis.iter().any(|(x, _)| x == digest) {
+            for cert in &parents {
+                if self.genesis.iter().any(|(x, _)| x == &cert.header_id) {
                     continue;
                 }
 
-                if self.store.read(digest.to_vec()).await?.is_none() {
+                if self.store.read(cert.header_id.to_vec()).await?.is_none() {
                     self.tx_certificate_waiter
                         .send(certificate.clone())
                         .await

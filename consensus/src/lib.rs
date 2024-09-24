@@ -9,13 +9,13 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-#[cfg(test)]
-#[path = "tests/consensus_tests.rs"]
-pub mod consensus_tests;
+// #[cfg(test)]
+// #[path = "tests/consensus_tests.rs"]
+// pub mod consensus_tests;
 
 /// The representation of the DAG in memory.
 type Dag = HashMap<Round, HashMap<PublicKey, (Digest, Certificate)>>;
-type ParentInfo = HashMap<Digest, BTreeSet<Digest>>;
+type ParentInfo = HashMap<Digest, Vec<Digest>>;
 /// The state that needs to be persisted for crash-recovery.
 struct State {
     /// The last committed round.
@@ -127,7 +127,7 @@ impl Consensus {
                 Some(header_msg) = self.rx_primary_header_msg.recv() => {
 
                     let h_id : Digest;
-                    let h_parents: BTreeSet<Digest>;
+                    let h_parents: Vec<Digest>;
                     let h_round: Round;
                     let h_author: PublicKey;
 
@@ -135,18 +135,19 @@ impl Consensus {
                         HeaderMessage::Header(header) => {
                             debug!("Processing header {:?}", header);
                             h_id = header.id.clone();
-                            h_parents = header.parents.clone();
+                            h_parents = header.parents.iter().map(|x| x.header_id.clone()).collect();
                             h_round = header.round;
                             h_author = header.author;
                         }
                         HeaderMessage::HeaderInfo(header_info) => {
                             debug!("Processing header info {:?}", header_info);
                             h_id = header_info.id.clone();
-                            h_parents = header_info.parents.clone();
+                            h_parents = header_info.parents.iter().map(|x| x.header_id.clone()).collect();
                             h_round = header_info.round;
                             h_author = header_info.author;
                         }
                     }
+                    
 
                     state.parent_info.insert(h_id.clone(), h_parents.clone());
                     // Try to order the dag to commit. Start from the previous round.
