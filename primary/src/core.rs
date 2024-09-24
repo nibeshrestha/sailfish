@@ -250,9 +250,12 @@ impl Core {
             .iter()
             .map(|(_, x)| x.primary_to_primary)
             .collect();
+    
+        
         let header_msg = HeaderMessage::Header(header.clone());
         let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(header_msg))
             .expect("Failed to serialize our own header");
+        
         let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
         self.cancel_handlers
             .entry(header.round)
@@ -325,8 +328,8 @@ impl Core {
                         debug!("Processing of {} suspended: missing parent(s)", header.id);
                         return Ok(());
                     }
-                    // info!("{:?}", parents);
-                    //Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
+
+                    // Check the parent certificates. Ensure the parents form a quorum and are all from the previous round.
                     let mut stake = 0;
                     let mut has_leader = false;
                     for x in parents {
@@ -431,7 +434,7 @@ impl Core {
                 if header_info.round != 1 {
                     let parents = self.synchronizer.get_parents(&header_msg).await?;
                     if parents.is_empty() {
-                        debug!(
+                        info!(
                             "Processing of {} suspended: missing parent(s)",
                             header_info.id
                         );
@@ -625,19 +628,19 @@ impl Core {
                 debug!("Assembled {:?}", certificate);
 
                 // Broadcast the certificate.
-                let addresses = self
-                    .committee
-                    .others_primaries(&self.name)
-                    .iter()
-                    .map(|(_, x)| x.primary_to_primary)
-                    .collect();
-                let bytes = bincode::serialize(&PrimaryMessage::Certificate(certificate.clone()))
-                    .expect("Failed to serialize our own certificate");
-                let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
-                self.cancel_handlers
-                    .entry(certificate.round())
-                    .or_insert_with(Vec::new)
-                    .extend(handlers);
+                // let addresses = self
+                //     .committee
+                //     .others_primaries(&self.name)
+                //     .iter()
+                //     .map(|(_, x)| x.primary_to_primary)
+                //     .collect();
+                // let bytes = bincode::serialize(&PrimaryMessage::Certificate(certificate.clone()))
+                //     .expect("Failed to serialize our own certificate");
+                // let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
+                // self.cancel_handlers
+                //     .entry(certificate.round())
+                //     .or_insert_with(Vec::new)
+                //     .extend(handlers);
 
                 // Process the new certificate.
                 let committee = Arc::clone(&self.committee);

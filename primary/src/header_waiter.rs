@@ -230,15 +230,15 @@ impl HeaderWaiter {
                 Some(result) = waiting.next() => match result {
                     Ok(Some(header_msg)) => {
                         let id : Digest;
-                        let parents : BTreeSet<Digest>;
+                        let parents : Vec<_>;
                         match header_msg.clone() {
                             HeaderMessage::Header(header) => {
                                 id = header.id.clone();
-                                parents = header.parents.clone();
+                                parents = header.parents;
                             }
                             HeaderMessage::HeaderInfo(header_info) => {
                                 id = header_info.id.clone();
-                                parents = header_info.parents.clone();
+                                parents = header_info.parents;
                             }
                         }
                         let _ = self.pending.remove(&id);
@@ -246,7 +246,7 @@ impl HeaderWaiter {
                         //     let _ = self.batch_requests.remove(x);
                         // }
                         for x in &parents {
-                            let _ = self.parent_requests.remove(x);
+                            let _ = self.parent_requests.remove(&x.header_id);
                         }
 
                         self.tx_core.send(header_msg).await.expect("Failed to send header");

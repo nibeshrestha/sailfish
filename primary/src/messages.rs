@@ -19,7 +19,7 @@ pub struct Header {
     pub author: PublicKey,
     pub round: Round,
     pub payload: Vec<Transaction>,
-    pub parents: BTreeSet<Digest>,
+    pub parents: Vec<Certificate>,
     pub id: Digest,
     pub signature: Signature,
     pub timeout_cert: TimeoutCert,
@@ -31,7 +31,7 @@ impl Header {
         author: PublicKey,
         round: Round,
         payload: Vec<Transaction>,
-        parents: BTreeSet<Digest>,
+        parents: Vec<Certificate>,
         timeout_cert: TimeoutCert,
         no_vote_certs: Vec<NoVoteCert>,
         signature_service: &mut SignatureService,
@@ -88,9 +88,9 @@ impl Hash for Header {
         for x in &self.payload {
             hasher.update(x);
         }
-        for x in &self.parents {
-            hasher.update(x);
-        }
+        // for x in &self.parents {
+        //     hasher.update(x.header_id.clone());
+        // }
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }
@@ -112,7 +112,7 @@ pub struct HeaderInfo {
     pub author: PublicKey,
     pub round: Round,
     pub payload: Digest,
-    pub parents: BTreeSet<Digest>,
+    pub parents: Vec<Certificate>,
     pub id: Digest,
     pub signature: Signature,
     pub timeout_cert: TimeoutCert,
