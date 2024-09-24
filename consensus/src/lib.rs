@@ -132,17 +132,33 @@ impl Consensus {
                     let h_author: PublicKey;
 
                     match header_msg {
+                        HeaderMessage::HeaderWithCertificate(header_with_parents) => {
+                            let header = header_with_parents.header;
+                            debug!("Processing header {:?}", header);
+                            h_id = header.id.clone();
+                            h_parents = header.parents;
+                            h_round = header.round;
+                            h_author = header.author;
+                        }
+                        HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
+                            let header_info = header_info_with_parents.header_info;
+                            debug!("Processing header info {:?}", header_info);
+                            h_id = header_info.id.clone();
+                            h_parents = header_info.parents;
+                            h_round = header_info.round;
+                            h_author = header_info.author;
+                        }
                         HeaderMessage::Header(header) => {
                             debug!("Processing header {:?}", header);
                             h_id = header.id.clone();
-                            h_parents = header.parents.iter().map(|x| x.header_id.clone()).collect();
+                            h_parents = header.parents;
                             h_round = header.round;
                             h_author = header.author;
                         }
                         HeaderMessage::HeaderInfo(header_info) => {
                             debug!("Processing header info {:?}", header_info);
                             h_id = header_info.id.clone();
-                            h_parents = header_info.parents.iter().map(|x| x.header_id.clone()).collect();
+                            h_parents = header_info.parents;
                             h_round = header_info.round;
                             h_author = header_info.author;
                         }

@@ -1,7 +1,7 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::messages::Certificate;
-use crate::primary::HeaderMessage;
+use crate::primary::{HeaderMessage, HeaderType};
 use futures::future::try_join_all;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
@@ -70,10 +70,10 @@ impl CertificateWaiter {
 
                         let parents: Vec<_>;
                         match header_msg {
-                            HeaderMessage::Header(header) => {
+                            HeaderType::Header(header) => {
                                 parents = header.parents;
                             }
-                            HeaderMessage::HeaderInfo(header_info) => {
+                            HeaderType::HeaderInfo(header_info) => {
                                 parents = header_info.parents;
                             }
                         }
@@ -81,7 +81,7 @@ impl CertificateWaiter {
                         let wait_for = parents
                         .iter()
                         .cloned()
-                        .map(|x| (x.header_id.to_vec(), self.store.clone()))
+                        .map(|x| (x.to_vec(), self.store.clone()))
                         .collect();
 
                         let fut = Self::waiter(wait_for, certificate);

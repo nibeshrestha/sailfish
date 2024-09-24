@@ -1,9 +1,11 @@
 use crate::batch_maker::Transaction;
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::messages::{Certificate, Header, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert};
+use crate::messages::{Certificate, Header, HeaderWithCertificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert};
 use crate::primary::Round;
+use crate::HeaderMessage;
 use config::Committee;
-use crypto::{PublicKey, SignatureService};
+use crypto::{Digest, Hash, PublicKey, SignatureService};
+use futures::sink::drain;
 #[cfg(feature = "benchmark")]
 use log::info;
 use log::{debug, warn};
@@ -37,7 +39,7 @@ pub struct Proposer {
     /// Receives the batch digest from our workers.
     rx_workers: Receiver<Vec<Transaction>>,
     /// Sends newly created headers to the `Core`.
-    tx_core: Sender<Header>,
+    tx_core: Sender<HeaderWithCertificate>,
     /// Sends newly created timeouts to the `Core`.
     tx_core_timeout: Sender<Timeout>,
     /// Receives timeout certs from the `Core`.
@@ -51,6 +53,7 @@ pub struct Proposer {
     round: Round,
     /// Holds the certificates' ids waiting to be included in the next header.
     last_parents: Vec<Certificate>,
+
     /// Holds the certificate of the last leader (if any).
     last_leaders: Vec<Option<Certificate>>,
     /// Holds the txns waiting to be included in the next header.
@@ -78,7 +81,7 @@ impl Proposer {
         consensus_only: bool,
         rx_core: Receiver<(Vec<Certificate>, Round)>,
         rx_workers: Receiver<Vec<Transaction>>,
-        tx_core: Sender<Header>,
+        tx_core: Sender<HeaderWithCertificate>,
         tx_core_timeout: Sender<Timeout>,
         rx_timeout_cert: Receiver<(TimeoutCert, Round)>,
         tx_core_no_vote_msg: Sender<NoVoteMsg>,
@@ -174,11 +177,12 @@ impl Proposer {
             payload = self.txns.drain(..limit).collect();
         }
 
+        let parents : Vec<Certificate> = self.last_parents.drain(..).collect();
         let header = Header::new(
             self.name,
             self.round,
             payload,
-            self.last_parents.drain(..).collect(),
+            parents.iter().map(|x| x.header_id).collect(),
             timeout_cert,
             no_vote_certs,
             &mut self.signature_service,
@@ -215,9 +219,14 @@ impl Proposer {
             // NOTE: This log entry is used to compute performance.
         }
 
+        let header_with_parents = HeaderWithCertificate {
+            header,
+            parents
+        };
+
         // Send the new header to the `Core` that will broadcast and process it.
         self.tx_core
-            .send(header)
+            .send(header_with_parents)
             .await
             .expect("Failed to send header");
     }
@@ -249,7 +258,7 @@ impl Proposer {
 
         // Extract authors from the last leaders' certificates
         let last_leader_authors: Vec<_> =
-            self.last_parents.iter().map(|cert| &cert.origin).collect();
+            self.last_parents.iter().map(|x| &x.origin).collect();
 
         // Filter out the public keys that are in current_leaders but not in last_leader_authors
         let nvm_leaders: Vec<_> = current_leaders

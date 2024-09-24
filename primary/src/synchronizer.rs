@@ -2,6 +2,7 @@
 use crate::error::DagResult;
 use crate::header_waiter::WaiterMessage;
 use crate::messages::{Certificate, Header};
+use crate::primary::HeaderType;
 use crate::HeaderMessage;
 use config::Committee;
 use crypto::{Digest, PublicKey};
@@ -39,7 +40,7 @@ impl Synchronizer {
             tx_certificate_waiter,
             genesis: Header::genesis(committee)
                 .into_iter()
-                .map(|x| (x.id.clone(), x))
+                .map(|x| (x.id, x))
                 .collect(),
         }
     }
@@ -86,15 +87,15 @@ impl Synchronizer {
     /// of the header for when we will have all the parents.
     pub async fn get_parents(
         &mut self,
-        header_msg: &HeaderMessage,
-    ) -> DagResult<Vec<HeaderMessage>> {
+        header_msg: &HeaderType,
+    ) -> DagResult<Vec<HeaderType>> {
         let h_parents: Vec<_>;
         
         match header_msg {
-            HeaderMessage::Header(header) => {
+            HeaderType::Header(header) => {
                 h_parents = header.parents.clone();
             }
-            HeaderMessage::HeaderInfo(header_info) => {
+            HeaderType::HeaderInfo(header_info) => {
                 h_parents = header_info.parents.clone();
             }
         }
@@ -104,26 +105,26 @@ impl Synchronizer {
 
         let mut missing = Vec::new();
         let mut parents = Vec::new();
-        for cert in &h_parents {
+        for parent in &h_parents {
             if let Some(genesis) = self
                 .genesis
                 .iter()
-                .find(|(x, _)| x == &cert.header_id)
+                .find(|(x, _)| x == parent)
                 .map(|(_, x)| x)
             {
-                let genesis_header_msg = HeaderMessage::Header(genesis.clone());
+                let genesis_header_msg = HeaderType::Header(genesis.clone());
                 parents.push(genesis_header_msg);
                 continue;
             }
 
             let now = Instant::now();
 
-            match self.store.read(cert.header_id.to_vec()).await? {
+            match self.store.read(parent.to_vec()).await? {
                 Some(h) => {
-                    let header_msg: HeaderMessage = bincode::deserialize(&h).unwrap();
+                    let header_msg: HeaderType = bincode::deserialize(&h).unwrap();
                     parents.push(header_msg)
                 }
-                None => missing.push(cert.header_id.clone()),
+                None => missing.push(parent.clone()),
             };
             let elapsed = now.elapsed();
             info!("Elapsed: {:.2?}", elapsed);
@@ -148,22 +149,22 @@ impl Synchronizer {
 
         if let Some(head) = self.store.read(key).await.unwrap() {
             let parents: Vec<_>;
-            let header_msg: HeaderMessage = bincode::deserialize(&head).unwrap();
-            match header_msg {
-                HeaderMessage::Header(header) => {
+            let header_type: HeaderType = bincode::deserialize(&head).unwrap();
+            match header_type {
+                HeaderType::Header(header) => {
                     parents = header.parents;
                 }
-                HeaderMessage::HeaderInfo(header_info) => {
+                HeaderType::HeaderInfo(header_info) => {
                     parents = header_info.parents;
                 }
             }
 
             for cert in &parents {
-                if self.genesis.iter().any(|(x, _)| x == &cert.header_id) {
+                if self.genesis.iter().any(|(x, _)| x == cert) {
                     continue;
                 }
 
-                if self.store.read(cert.header_id.to_vec()).await?.is_none() {
+                if self.store.read(cert.to_vec()).await?.is_none() {
                     self.tx_certificate_waiter
                         .send(certificate.clone())
                         .await
