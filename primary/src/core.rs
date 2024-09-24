@@ -316,13 +316,13 @@ impl Core {
                     .expect("Failed to send certificate");
             }
 
-            let id = certificate.header_id;
-            if let Err(e) = self.tx_consensus.send(certificate).await {
-                warn!(
-                    "Failed to deliver certificate {} to the consensus: {}",
-                    id, e
-                );
-            }
+            // let id = certificate.header_id;
+            // if let Err(e) = self.tx_consensus.send(certificate).await {
+            //     warn!(
+            //         "Failed to deliver certificate {} to the consensus: {}",
+            //         id, e
+            //     );
+            // }
         }
         Ok(())
     }
@@ -357,6 +357,7 @@ impl Core {
 
                 info!("received header_with_cert {:?} {}", header.id, header.round);
 
+                self.process_parent_certificates(header_with_parents.parents.clone()).await?;
                 // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
                 // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
                 // reschedule processing of this header.
@@ -416,9 +417,6 @@ impl Core {
                             }
                         }
                     }
-
-                    self.process_parent_certificates(header_with_parents.parents.clone())
-                        .await?;
                 }
 
                 // Store the header.
@@ -478,7 +476,8 @@ impl Core {
                         self.sorted_keys.clone(),
                         self.committee.size(),
                     ));
-
+                
+                self.process_parent_certificates(header_info_with_parents.parents.clone()).await?;
                 // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
                 // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
                 // reschedule processing of this header.
@@ -542,8 +541,6 @@ impl Core {
                             }
                         }
                     }
-                    self.process_parent_certificates(header_info_with_parents.parents.clone())
-                        .await?;
                 }
 
                 let header_type = HeaderType::HeaderInfo(header_info.clone());
