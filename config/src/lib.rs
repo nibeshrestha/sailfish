@@ -160,13 +160,29 @@ pub struct Authority {
 }
 
 #[derive(Clone, Deserialize)]
-pub struct Committee {
+pub struct Comm {
     pub authorities: BTreeMap<PublicKey, Authority>,
 }
 
-impl Import for Committee {}
+impl Import for Comm {}
+
+#[derive(Clone)]
+pub struct Committee {
+    pub authorities: BTreeMap<PublicKey, Authority>,
+    pub sorted_keys: Vec<PublicKey>,
+}
 
 impl Committee {
+    pub fn new(authorities: BTreeMap<PublicKey, Authority>) -> Committee {
+        let mut keys: Vec<_> = authorities.keys().cloned().collect();
+        keys.sort();
+        let committee = Self {
+            authorities,
+            sorted_keys: keys,
+        };
+        committee
+    }
+
     /// Returns the number of authorities.
     pub fn size(&self) -> usize {
         self.authorities.len()
@@ -205,15 +221,10 @@ impl Committee {
     /// Returns a leader node in a round-robin fashion.
     /// This does not have to be changed because it works for odd and even numbers.
     pub fn leader(&self, seed: usize) -> PublicKey {
-        let mut keys: Vec<_> = self.authorities.keys().cloned().collect();
-        keys.sort();
-        keys[seed % self.size()]
+        self.sorted_keys[seed % self.size()]
     }
 
     pub fn sub_leaders(&self, seed: usize, num_leaders: usize) -> Vec<PublicKey> {
-        let mut keys: Vec<_> = self.authorities.keys().cloned().collect();
-        keys.sort();
-
         // Find the index of the seed in the sorted keys vector
         let seed_index = seed % self.size();
 
@@ -221,18 +232,16 @@ impl Committee {
         let mut sub_leaders = Vec::with_capacity(num_leaders - 1);
         for i in 1..num_leaders {
             let index = (seed_index + i) % self.size(); // Wrap around if needed
-            sub_leaders.push(keys[index].clone());
+            sub_leaders.push(self.sorted_keys[index].clone());
         }
 
         sub_leaders
     }
 
     pub fn leader_list(&self, leaders_per_round: usize, seed: usize) -> Vec<PublicKey> {
-        let mut keys: Vec<_> = self.authorities.keys().cloned().collect();
-        keys.sort();
         let mut leaders: Vec<PublicKey> = Vec::new();
         for i in 0..leaders_per_round {
-            leaders.push(keys[(seed + i) % self.size()]);
+            leaders.push(self.sorted_keys[(seed + i) % self.size()]);
         }
         leaders
     }
