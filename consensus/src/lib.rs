@@ -163,7 +163,7 @@ impl Consensus {
                             h_author = header_info.author;
                         }
                     }
-                    
+
 
                     state.parent_info.insert(h_id.clone(), h_parents.clone());
                     // Try to order the dag to commit. Start from the previous round.
@@ -199,7 +199,7 @@ impl Consensus {
 
                         let current_stake = self.stake_vote.get(&(leader.round, leader_digest.clone()));
                         let current_stake_value = *current_stake.unwrap_or(&0);
-                        
+
                         // Commit if we have QT
                         if current_stake_value >= self.committee.quorum_threshold() {
                             // Get an ordered list of past leaders that are linked to the current leader.
