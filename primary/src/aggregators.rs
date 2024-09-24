@@ -4,7 +4,7 @@ use crate::messages::{Certificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, 
 use blsttc::{PublicKeyShareG2, SignatureShareG1};
 use config::{Clan, Committee, Stake};
 use crypto::{aggregate_sign, PublicKey, Signature};
-use log::debug;
+use log::info;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -121,7 +121,7 @@ impl CertificatesAggregator {
             }
         }
 
-        debug!("Got all leader for round {}", certificate.round());
+        info!("Got all leader for round {}", certificate.round());
 
         if self.weight >= committee.quorum_threshold() {
             // self.weight = 0; // Ensures quorum is only reached once.

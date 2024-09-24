@@ -5,11 +5,10 @@ use config::BlsKeyPair;
 use config::Clan;
 use config::Export as _;
 use config::Import as _;
-use config::{Committee, KeyPair, Parameters};
+use config::{Comm, Committee, KeyPair, Parameters};
 use consensus::Consensus;
 use crypto::combine_keys;
 use env_logger::Env;
-use log::info;
 use primary::{Certificate, Primary};
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver};
@@ -114,9 +113,9 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
         BlsKeyPair::import(bls_key_file).context("Failed to load the node's keypair")?;
 
     //fetching committee
-    let committee =
-        Committee::import(committee_file).context("Failed to load the committee information")?;
+    let comm = Comm::import(committee_file).context("Failed to load the committee information")?;
 
+    let committee = Committee::new(comm.authorities);
     //fetching clan
     let my_clan_id = committee.authorities.get(&name).unwrap().clan_id;
     let clan = Clan::create_clan_from_committee(&committee, my_clan_id)
