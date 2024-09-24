@@ -5,7 +5,7 @@ use crypto::{Digest, PublicKey};
 use log::{debug, info, warn};
 use primary::{Certificate, HeaderMessage, Round};
 use std::cmp::max;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -84,7 +84,7 @@ pub struct Consensus {
     /// The genesis certificates.
     genesis: Vec<Certificate>,
     /// The stake vote received by the leader of a round.
-    stake_vote: HashMap<(Round, Digest), u32>,
+    stake_vote: HashMap<(Round, Digest), Stake>,
     ///The total numbers of leaders in each round
     leaders_per_round: usize,
 }
