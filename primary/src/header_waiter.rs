@@ -236,7 +236,7 @@ impl HeaderWaiter {
                                 id = header.id;
                                 parents = header.parents.clone();
                                 let _ = self.pending.remove(&id);
-                          
+
                                 for x in &parents {
                                     let _ = self.parent_requests.remove(&x);
                                 }
@@ -246,18 +246,13 @@ impl HeaderWaiter {
                                 id = header_info.id;
                                 parents = header_info.parents.clone();
                                 let _ = self.pending.remove(&id);
-                            
+
                                 for x in &parents {
                                     let _ = self.parent_requests.remove(&x);
                                 }
                                 self.tx_core.send(HeaderMessage::HeaderInfo(header_info)).await.expect("Failed to send header");
                             }
                         }
-                       
-
-
-                        
-                        
                     },
                     Ok(None) => {
                         // This request has been canceled.

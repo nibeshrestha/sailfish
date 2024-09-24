@@ -85,12 +85,9 @@ impl Synchronizer {
     /// Returns the parents of a header if we have them all. If at least one parent is missing,
     /// we return an empty vector, synchronize with other nodes, and re-schedule processing
     /// of the header for when we will have all the parents.
-    pub async fn get_parents(
-        &mut self,
-        header_msg: &HeaderType,
-    ) -> DagResult<Vec<HeaderType>> {
+    pub async fn get_parents(&mut self, header_msg: &HeaderType) -> DagResult<Vec<HeaderType>> {
         let h_parents: Vec<_>;
-        
+
         match header_msg {
             HeaderType::Header(header) => {
                 h_parents = header.parents.clone();
@@ -99,9 +96,6 @@ impl Synchronizer {
                 h_parents = header_info.parents.clone();
             }
         }
-
-        use std::time::Instant;
-        let now = Instant::now();
 
         let mut missing = Vec::new();
         let mut parents = Vec::new();
@@ -117,8 +111,6 @@ impl Synchronizer {
                 continue;
             }
 
-            let now = Instant::now();
-
             match self.store.read(parent.to_vec()).await? {
                 Some(h) => {
                     let header_msg: HeaderType = bincode::deserialize(&h).unwrap();
@@ -126,10 +118,7 @@ impl Synchronizer {
                 }
                 None => missing.push(parent.clone()),
             };
-            let elapsed = now.elapsed();
-            info!("Elapsed: {:.2?}", elapsed);
         }
-        
 
         if missing.is_empty() {
             return Ok(parents);

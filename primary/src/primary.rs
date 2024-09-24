@@ -5,7 +5,10 @@ use crate::error::DagError;
 use crate::garbage_collector::GarbageCollector;
 use crate::header_waiter::HeaderWaiter;
 use crate::helper::Helper;
-use crate::messages::{Certificate, Header, HeaderInfo, HeaderInfoWithCertificate, HeaderWithCertificate, NoVoteMsg, Timeout, Vote};
+use crate::messages::{
+    Certificate, Header, HeaderInfo, HeaderInfoWithCertificate, HeaderWithCertificate, NoVoteMsg,
+    Timeout, Vote,
+};
 // use crate::payload_receiver::PayloadReceiver;
 use crate::proposer::Proposer;
 use crate::synchronizer::Synchronizer;
@@ -48,7 +51,7 @@ pub enum HeaderMessage {
     HeaderWithCertificate(HeaderWithCertificate),
     HeaderInfoWithCertificate(HeaderInfoWithCertificate),
     Header(Header),
-    HeaderInfo(HeaderInfo)
+    HeaderInfo(HeaderInfo),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -246,7 +249,6 @@ impl Primary {
             committee.clone(),
             signature_service,
             parameters.header_size,
-            parameters.batch_size,
             parameters.tx_size,
             parameters.max_header_delay,
             parameters.consensus_only,

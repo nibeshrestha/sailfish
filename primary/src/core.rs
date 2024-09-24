@@ -4,7 +4,8 @@ use crate::aggregators::{
 };
 use crate::error::{DagError, DagResult};
 use crate::messages::{
-    Certificate, Header, HeaderInfo, HeaderInfoWithCertificate, HeaderWithCertificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, Vote
+    Certificate, Header, HeaderInfo, HeaderInfoWithCertificate, HeaderWithCertificate, NoVoteCert,
+    NoVoteMsg, Timeout, TimeoutCert, Vote,
 };
 use crate::primary::{HeaderMessage, HeaderType, PrimaryMessage, Round};
 use crate::synchronizer::Synchronizer;
@@ -253,12 +254,11 @@ impl Core {
             .iter()
             .map(|(_, x)| x.primary_to_primary)
             .collect();
-    
-        
+
         let header_msg = HeaderMessage::HeaderWithCertificate(header_with_parents.clone());
         let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(header_msg.clone()))
             .expect("Failed to serialize our own header");
-        
+
         let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
         self.cancel_handlers
             .entry(header.round)
@@ -272,7 +272,8 @@ impl Core {
             parents,
         };
 
-        let header_info_msg: HeaderMessage = HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents);
+        let header_info_msg: HeaderMessage =
+            HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents);
         let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(header_info_msg))
             .expect("Failed to serialize our own header info");
 
@@ -296,6 +297,28 @@ impl Core {
         self.process_header_msg(&header_msg, tx_primary).await
     }
 
+    async fn process_parent_certificates(
+        &mut self,
+        parent_certs: Vec<Certificate>,
+    ) -> DagResult<()> {
+        for certificate in parent_certs {
+            // Check if we have enough certificates to enter a new dag round and propose a header.
+            if let Some(parents) = self
+                .certificates_aggregators
+                .entry(certificate.round())
+                .or_insert_with(|| Box::new(CertificatesAggregator::new()))
+                .append(certificate.clone(), &self.committee, self.leaders_per_round)?
+            {
+                // Send it to the `Proposer`.
+                self.tx_proposer
+                    .send((parents, certificate.round()))
+                    .await
+                    .expect("Failed to send certificate");
+            }
+        }
+        Ok(())
+    }
+
     #[async_recursion]
     async fn process_header_msg(
         &mut self,
@@ -310,8 +333,7 @@ impl Core {
 
         match header_msg {
             HeaderMessage::HeaderWithCertificate(header_with_parents) => {
-               
-               let header = header_with_parents.header.clone();
+                let header = header_with_parents.header.clone();
                 debug!("Processing {:?}", header);
 
                 // Indicate that we are processing this header.
@@ -324,15 +346,18 @@ impl Core {
                         self.sorted_keys.clone(),
                         self.committee.size(),
                     ));
-                
-                info!("received header {:?} {}", header.id, header.round);
+
+                info!("received header_with_cert {:?} {}", header.id, header.round);
 
                 // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
                 // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
                 // reschedule processing of this header.
 
                 if header.round != 1 {
-                    let parents = self.synchronizer.get_parents(&HeaderType::Header(header.clone())).await?;
+                    let parents = self
+                        .synchronizer
+                        .get_parents(&HeaderType::Header(header.clone()))
+                        .await?;
                     if parents.is_empty() {
                         debug!("Processing of {} suspended: missing parent(s)", header.id);
                         return Ok(());
@@ -383,6 +408,9 @@ impl Core {
                             }
                         }
                     }
+
+                    self.process_parent_certificates(header_with_parents.parents.clone())
+                        .await?;
                 }
 
                 // Store the header.
@@ -398,7 +426,8 @@ impl Core {
                     .insert(header.author)
                 {
                     // Make a vote and send it to all nodes
-                    let vote = Vote::new(&header, &self.name, &mut self.bls_signature_service).await;
+                    let vote =
+                        Vote::new(&header, &self.name, &mut self.bls_signature_service).await;
                     // debug!("Created {:?}", vote);
 
                     let addresses = self
@@ -423,11 +452,13 @@ impl Core {
             }
 
             HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
-                
                 let header_info = header_info_with_parents.header_info.clone();
 
                 debug!("Processing {:?}", header_info);
-                info!("received header info {:?} {}", header_info.id, header_info.round);
+                info!(
+                    "received header_info_with_cert {:?} {}",
+                    header_info.id, header_info.round
+                );
 
                 // Indicate that we are processing this header.
                 self.processing_header_infos
@@ -445,7 +476,10 @@ impl Core {
                 // reschedule processing of this header.
 
                 if header_info.round != 1 {
-                    let parents = self.synchronizer.get_parents(&HeaderType::HeaderInfo(header_info.clone())).await?;
+                    let parents = self
+                        .synchronizer
+                        .get_parents(&HeaderType::HeaderInfo(header_info.clone()))
+                        .await?;
                     if parents.is_empty() {
                         info!(
                             "Processing of {} suspended: missing parent(s)",
@@ -500,6 +534,8 @@ impl Core {
                             }
                         }
                     }
+                    self.process_parent_certificates(header_info_with_parents.parents.clone())
+                        .await?;
                 }
 
                 let header_type = HeaderType::HeaderInfo(header_info.clone());
@@ -559,7 +595,7 @@ impl Core {
                         self.sorted_keys.clone(),
                         self.committee.size(),
                     ));
-                
+
                 info!("received header {:?} {}", header.id, header.round);
 
                 // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
@@ -567,7 +603,10 @@ impl Core {
                 // reschedule processing of this header.
 
                 if header.round != 1 {
-                    let parents = self.synchronizer.get_parents(&HeaderType::Header(header.clone())).await?;
+                    let parents = self
+                        .synchronizer
+                        .get_parents(&HeaderType::Header(header.clone()))
+                        .await?;
                     if parents.is_empty() {
                         debug!("Processing of {} suspended: missing parent(s)", header.id);
                         return Ok(());
@@ -633,7 +672,8 @@ impl Core {
                     .insert(header.author)
                 {
                     // Make a vote and send it to all nodes
-                    let vote = Vote::new(&header, &self.name, &mut self.bls_signature_service).await;
+                    let vote =
+                        Vote::new(&header, &self.name, &mut self.bls_signature_service).await;
                     // debug!("Created {:?}", vote);
 
                     let addresses = self
@@ -659,7 +699,10 @@ impl Core {
 
             HeaderMessage::HeaderInfo(header_info) => {
                 debug!("Processing {:?}", header_info);
-                info!("received header info {:?} {}", header_info.id, header_info.round);
+                info!(
+                    "received header info {:?} {}",
+                    header_info.id, header_info.round
+                );
 
                 // Indicate that we are processing this header.
                 self.processing_header_infos
@@ -677,7 +720,10 @@ impl Core {
                 // reschedule processing of this header.
 
                 if header_info.round != 1 {
-                    let parents = self.synchronizer.get_parents(&HeaderType::HeaderInfo(header_info.clone())).await?;
+                    let parents = self
+                        .synchronizer
+                        .get_parents(&HeaderType::HeaderInfo(header_info.clone()))
+                        .await?;
                     if parents.is_empty() {
                         info!(
                             "Processing of {} suspended: missing parent(s)",
@@ -779,7 +825,6 @@ impl Core {
             }
         }
     }
-
 
     #[async_recursion]
     async fn process_timeout(&mut self, timeout: Timeout) -> DagResult<()> {
@@ -916,7 +961,10 @@ impl Core {
     #[async_recursion]
     async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
         debug!("Processing {:?}", certificate);
-        info!("received cert for header {:?} round : {}", certificate.header_id, certificate.round);
+        info!(
+            "received cert for header {:?} round : {}",
+            certificate.header_id, certificate.round
+        );
         // Process the header embedded in the certificate if we haven't already voted for it (if we already
         // voted, it means we already processed it). Since this header got certified, we are sure that all
         // the data it refers to (ie. its payload and its parents) are available. We can thus continue the
@@ -975,8 +1023,7 @@ impl Core {
     fn sanitize_header_msg(&mut self, header_msg: &HeaderMessage) -> DagResult<()> {
         match header_msg {
             HeaderMessage::HeaderWithCertificate(header_with_parents) => {
-                
-                let  header = &header_with_parents.header;
+                let header = &header_with_parents.header;
                 ensure!(
                     self.gc_round <= header.round,
                     DagError::TooOld(header.id, header.round)
@@ -988,8 +1035,7 @@ impl Core {
             }
 
             HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
-                
-                let  header_info = &header_info_with_parents.header_info;
+                let header_info = &header_info_with_parents.header_info;
                 ensure!(
                     self.gc_round <= header_info.round,
                     DagError::TooOld(header_info.id, header_info.round)

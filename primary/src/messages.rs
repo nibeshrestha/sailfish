@@ -109,13 +109,17 @@ impl fmt::Display for Header {
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct HeaderWithCertificate {
-    pub header : Header,
+    pub header: Header,
     pub parents: Vec<Certificate>,
 }
 
 impl fmt::Debug for HeaderWithCertificate {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}: B{}({})", self.header.id, self.header.round, self.header.author,)
+        write!(
+            f,
+            "{}: B{}({})",
+            self.header.id, self.header.round, self.header.author,
+        )
     }
 }
 
@@ -125,22 +129,29 @@ impl fmt::Display for HeaderWithCertificate {
     }
 }
 
-
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct HeaderInfoWithCertificate {
-    pub header_info : HeaderInfo,
+    pub header_info: HeaderInfo,
     pub parents: Vec<Certificate>,
 }
 
 impl fmt::Debug for HeaderInfoWithCertificate {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}: B{}({})", self.header_info.id, self.header_info.round, self.header_info.author,)
+        write!(
+            f,
+            "{}: B{}({})",
+            self.header_info.id, self.header_info.round, self.header_info.author,
+        )
     }
 }
 
 impl fmt::Display for HeaderInfoWithCertificate {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "B{}({})", self.header_info.round, self.header_info.author)
+        write!(
+            f,
+            "B{}({})",
+            self.header_info.round, self.header_info.author
+        )
     }
 }
 

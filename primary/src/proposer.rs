@@ -1,10 +1,11 @@
 use crate::batch_maker::Transaction;
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::messages::{Certificate, Header, HeaderWithCertificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert};
+use crate::messages::{
+    Certificate, Header, HeaderWithCertificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert,
+};
 use crate::primary::Round;
-use crate::HeaderMessage;
 use config::Committee;
-use crypto::{Digest, Hash, PublicKey, SignatureService};
+use crypto::{PublicKey, SignatureService};
 use futures::sink::drain;
 #[cfg(feature = "benchmark")]
 use log::info;
@@ -28,7 +29,6 @@ pub struct Proposer {
     signature_service: SignatureService,
     /// The size of the headers' payload.
     header_size: usize,
-    batch_size: usize,
     tx_size: usize,
     /// The maximum delay to wait for batches' digests.
     max_header_delay: u64,
@@ -75,7 +75,6 @@ impl Proposer {
         committee: Committee,
         signature_service: SignatureService,
         header_size: usize,
-        batch_size: usize,
         tx_size: usize,
         max_header_delay: u64,
         consensus_only: bool,
@@ -95,7 +94,6 @@ impl Proposer {
                 committee,
                 signature_service,
                 header_size,
-                batch_size,
                 tx_size,
                 max_header_delay,
                 consensus_only,
@@ -177,7 +175,7 @@ impl Proposer {
             payload = self.txns.drain(..limit).collect();
         }
 
-        let parents : Vec<Certificate> = self.last_parents.drain(..).collect();
+        let parents: Vec<Certificate> = self.last_parents.drain(..).collect();
         let header = Header::new(
             self.name,
             self.round,
@@ -219,10 +217,7 @@ impl Proposer {
             // NOTE: This log entry is used to compute performance.
         }
 
-        let header_with_parents = HeaderWithCertificate {
-            header,
-            parents
-        };
+        let header_with_parents = HeaderWithCertificate { header, parents };
 
         // Send the new header to the `Core` that will broadcast and process it.
         self.tx_core
@@ -257,8 +252,7 @@ impl Proposer {
             .sub_leaders(self.round as usize, self.leaders_per_round);
 
         // Extract authors from the last leaders' certificates
-        let last_leader_authors: Vec<_> =
-            self.last_parents.iter().map(|x| &x.origin).collect();
+        let last_leader_authors: Vec<_> = self.last_parents.iter().map(|x| &x.origin).collect();
 
         // Filter out the public keys that are in current_leaders but not in last_leader_authors
         let nvm_leaders: Vec<_> = current_leaders
