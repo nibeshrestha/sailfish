@@ -1,6 +1,6 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::{
-    primary::{HeaderMessage, PrimaryMessage},
+    primary::{HeaderMessage, HeaderType, PrimaryMessage},
     HeaderInfo,
 };
 use bytes::Bytes;
@@ -64,18 +64,15 @@ impl Helper {
                         // TODO: Remove this deserialization-serialization in the critical path.
                         let header_msg = bincode::deserialize(&data).unwrap();
 
-                        if let HeaderMessage::Header(header) = header_msg {
+                        if let HeaderType::Header(header) = header_msg {
                             if self.clan.is_member(&origin) {
-                                let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(
-                                    HeaderMessage::Header(header),
-                                ))
+                                let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(HeaderMessage::Header(header)),
+                                )
                                 .expect("Failed to serialize our own certificate");
                                 self.network.send(address, Bytes::from(bytes)).await;
                             } else {
                                 let header_info = HeaderInfo::create_from(header);
-                                let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(
-                                    HeaderMessage::HeaderInfo(header_info),
-                                ))
+                                let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(HeaderMessage::HeaderInfo(header_info)))
                                 .expect("Failed to serialize our own certificate");
                                 self.network.send(address, Bytes::from(bytes)).await;
                             }
