@@ -294,9 +294,7 @@ class Bench:
     def _generate_config(self, hosts, node_parameters, bench_parameters):
         Print.info('Generating configuration files...')
 
-        nodes = len(hosts)
         clan_info =  bench_parameters.clan_info
-        total_clan = len(clan_info)
 
         # Cleanup all local configuration files.
         cmd = CommandMaker.cleanup()

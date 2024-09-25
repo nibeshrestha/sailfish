@@ -7,7 +7,7 @@ use crate::messages::{
     Certificate, Header, HeaderInfo, HeaderInfoWithCertificate, HeaderWithCertificate, NoVoteCert,
     NoVoteMsg, Timeout, TimeoutCert, Vote,
 };
-use crate::primary::{HeaderMessage, HeaderType, PrimaryMessage, Round};
+use crate::primary::{ConsensusMessage, HeaderMessage, HeaderType, PrimaryMessage, Round};
 use crate::synchronizer::Synchronizer;
 use async_recursion::async_recursion;
 use blsttc::PublicKeyShareG2;
@@ -70,7 +70,7 @@ pub struct Core {
     /// Send a valid NoVoteCert along with the round to the `Proposer`.
     tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
     /// Send a the header that has voted for the prev leader to the `Consensus` logic.
-    tx_consensus_header_msg: Sender<HeaderMessage>,
+    tx_consensus_header_msg: Sender<ConsensusMessage>,
 
     /// The last garbage collected round.
     gc_round: Round,
@@ -125,7 +125,7 @@ impl Core {
         tx_proposer: Sender<(Vec<Certificate>, Round)>,
         tx_timeout_cert: Sender<(TimeoutCert, Round)>,
         tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
-        tx_consensus_header_msg: Sender<HeaderMessage>,
+        tx_consensus_header_msg: Sender<ConsensusMessage>,
         leaders_per_round: usize,
     ) {
         tokio::spawn(async move {
@@ -316,13 +316,17 @@ impl Core {
                     .expect("Failed to send certificate");
             }
 
-            // let id = certificate.header_id;
-            // if let Err(e) = self.tx_consensus.send(certificate).await {
-            //     warn!(
-            //         "Failed to deliver certificate {} to the consensus: {}",
-            //         id, e
-            //     );
-            // }
+            let id = certificate.header_id;
+            if let Err(e) = self
+                .tx_consensus_header_msg
+                .send(ConsensusMessage::Certificate(certificate))
+                .await
+            {
+                warn!(
+                    "Failed to deliver certificate {} to the consensus: {}",
+                    id, e
+                );
+            }
         }
         Ok(())
     }
@@ -333,12 +337,11 @@ impl Core {
         header_msg: &HeaderMessage,
         tx_primary: &Arc<Sender<PrimaryMessage>>,
     ) -> DagResult<()> {
-
-        let h_id : Digest;
-        let h_round : Round;
-        let header : Option<Header>;
+        let h_id: Digest;
+        let h_round: Round;
+        let header: Option<Header>;
         let header_info: Option<HeaderInfo>;
-        let h_parents : Option<Vec<Certificate>>;
+        let h_parents: Option<Vec<Certificate>>;
 
         match header_msg {
             HeaderMessage::HeaderWithCertificate(header_with_parents) => {
@@ -349,10 +352,7 @@ impl Core {
                 h_parents = Some(header_with_parents.parents.clone());
 
                 debug!("Processing {:?}", header);
-                info!(
-                    "received header_with_cert {:?} {}",
-                    h_id, h_round
-                );
+                info!("received header_with_cert {:?} {}", h_id, h_round);
             }
 
             HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
@@ -363,11 +363,7 @@ impl Core {
                 h_parents = Some(header_info_with_parents.parents.clone());
 
                 debug!("Processing {:?}", header_info);
-                info!(
-                    "received header_info_with_cert {:?} {}",
-                    h_id, h_round
-                );
-                
+                info!("received header_info_with_cert {:?} {}", h_id, h_round);
             }
 
             HeaderMessage::Header(head) => {
@@ -377,44 +373,40 @@ impl Core {
                 header_info = None;
                 h_parents = None;
 
-                info!(
-                    "received header {:?} {}",
-                    h_id, h_round
-                );
+                info!("received header {:?} {}", h_id, h_round);
             }
 
             HeaderMessage::HeaderInfo(head_info) => {
-                
                 h_id = head_info.id;
                 h_round = head_info.round;
                 header = None;
                 header_info = Some(head_info.clone());
                 h_parents = None;
 
-                info!(
-                    "received header info {:?} {}",
-                    h_id, h_round
-                );
+                info!("received header info {:?} {}", h_id, h_round);
             }
         }
 
         if let Some(head) = header {
             // Indicate that we are processing this header.
             self.processing_headers
-            .entry(head.id)
-            .or_insert(head.clone());
+                .entry(head.id)
+                .or_insert(head.clone());
             self.processing_vote_aggregators
                 .entry(head.id)
                 .or_insert(VotesAggregator::new(
                     self.sorted_keys.clone(),
                     self.committee.size(),
                 ));
-            
+
             if let Some(parents) = h_parents {
-                self.process_parent_certificates(parents.clone())
-                .await?;
+                self.process_parent_certificates(parents).await?;
             }
-            
+
+            // if let Some(parents) = h_parents {
+                
+            // }
+
             // Check if we can vote for this header.
             if self
                 .last_voted
@@ -423,8 +415,7 @@ impl Core {
                 .insert(head.author)
             {
                 // Make a vote and send it to all nodes
-                let vote =
-                    Vote::new(&head, &self.name, &mut self.bls_signature_service).await;
+                let vote = Vote::new(&head, &self.name, &mut self.bls_signature_service).await;
                 // debug!("Created {:?}", vote);
 
                 let addresses = self
@@ -456,40 +447,38 @@ impl Core {
                     .get_parents(&HeaderType::Header(head.clone()))
                     .await?;
                 if parents.is_empty() {
-                    debug!("Processing of {} suspended: missing parent(s)", head.id);
+                    info!("Processing of {} suspended: missing parent(s)", head.id);
                     return Ok(());
                 }
             }
 
             // Send header to consensus
             self.tx_consensus_header_msg
-            .send(header_msg.clone())
-            .await
-            .expect("Failed to send header to consensus");
+                .send(ConsensusMessage::Header(head.clone()))
+                .await
+                .expect("Failed to send header to consensus");
 
             // Store the header.
             let header_type = HeaderType::Header(head.clone());
             let bytes = bincode::serialize(&header_type).expect("Failed to serialize header");
             self.store.write(head.id.to_vec(), bytes).await;
             return Ok(());
-
-        }else if let Some(head) = header_info {
+        } else if let Some(head) = header_info {
             // Indicate that we are processing this header.
             self.processing_header_infos
-            .entry(head.id)
-            .or_insert(head.clone());
+                .entry(head.id)
+                .or_insert(head.clone());
             self.processing_vote_aggregators
                 .entry(head.id)
                 .or_insert(VotesAggregator::new(
                     self.sorted_keys.clone(),
                     self.committee.size(),
                 ));
-            
-            if let Some(parents) = h_parents {
-                self.process_parent_certificates(parents.clone())
-                .await?;
+
+            if let Some(parents) = h_parents.clone() {
+                self.process_parent_certificates(parents).await?;
             }
-            
+
             // Check if we can vote for this header.
             if self
                 .last_voted
@@ -499,7 +488,8 @@ impl Core {
             {
                 // Make a vote and send it to all nodes
                 let vote =
-                    Vote::new_for_header_info(&head, &self.name, &mut self.bls_signature_service).await;
+                    Vote::new_for_header_info(&head, &self.name, &mut self.bls_signature_service)
+                        .await;
                 // debug!("Created {:?}", vote);
 
                 let addresses = self
@@ -531,16 +521,16 @@ impl Core {
                     .get_parents(&HeaderType::HeaderInfo(head.clone()))
                     .await?;
                 if parents.is_empty() {
-                    debug!("Processing of {} suspended: missing parent(s)", head.id);
+                    info!("Processing of {} suspended: missing parent(s)", head.id);
                     return Ok(());
                 }
             }
 
             // Send header to consensus
             self.tx_consensus_header_msg
-            .send(header_msg.clone())
-            .await
-            .expect("Failed to send header to consensus");
+                .send(ConsensusMessage::HeaderInfo(head.clone()))
+                .await
+                .expect("Failed to send header to consensus");
 
             // Store the header.
             let header_type = HeaderType::HeaderInfo(head.clone());
@@ -549,7 +539,6 @@ impl Core {
             return Ok(());
         }
         Ok(())
-                
     }
 
     #[async_recursion]
@@ -559,10 +548,10 @@ impl Core {
         tx_primary: &Arc<Sender<PrimaryMessage>>,
     ) -> DagResult<()> {
         // Send header to consensus
-        self.tx_consensus_header_msg
-            .send(header_msg.clone())
-            .await
-            .expect("Failed to send header to consensus");
+        // self.tx_consensus_header_msg
+        //     .send(header_msg.clone())
+        //     .await
+        //     .expect("Failed to send header to consensus");
 
         match header_msg {
             HeaderMessage::HeaderWithCertificate(header_with_parents) => {

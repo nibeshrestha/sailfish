@@ -21,5 +21,5 @@ mod common;
 
 pub use crate::messages::{Certificate, Header, HeaderInfo};
 pub use crate::primary::{
-    HeaderMessage, Primary, PrimaryWorkerMessage, Round, WorkerPrimaryMessage,
+    ConsensusMessage, HeaderMessage, Primary, PrimaryWorkerMessage, Round, WorkerPrimaryMessage,
 };

@@ -54,6 +54,14 @@ pub enum HeaderMessage {
     HeaderInfo(HeaderInfo),
 }
 
+pub enum ConsensusMessage {
+    HeaderWithCertificate(HeaderWithCertificate),
+    HeaderInfoWithCertificate(HeaderInfoWithCertificate),
+    Header(Header),
+    HeaderInfo(HeaderInfo),
+    Certificate(Certificate),
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum HeaderType {
     Header(Header),
@@ -92,7 +100,7 @@ impl Primary {
         store: Store,
         tx_consensus: Sender<Certificate>,
         rx_consensus: Receiver<Certificate>,
-        tx_consensus_header_msg: Sender<HeaderMessage>,
+        tx_consensus_header_msg: Sender<ConsensusMessage>,
         leaders_per_round: usize,
     ) {
         // let (tx_others_digests, rx_others_digests) = channel(CHANNEL_CAPACITY);
