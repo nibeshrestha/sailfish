@@ -652,30 +652,23 @@ impl Core {
                 //     .extend(handlers);
 
                 // Process the new certificate.
-                // let committee = Arc::clone(&self.committee);
-                // let sorted_keys = Arc::clone(&self.sorted_keys);
-                // let tx_primary = tx_primary.clone();
-                // let combined_key = Arc::clone(&self.combined_pubkey);
+                let committee = Arc::clone(&self.committee);
+                let sorted_keys = Arc::clone(&self.sorted_keys);
+                let tx_primary = tx_primary.clone();
+                let combined_key = Arc::clone(&self.combined_pubkey);
 
-                // tx_primary
-                //     .send(PrimaryMessage::VerifiedCertificate(certificate))
-                //     .await
-                //     .expect("Failed to send no vote message");
-
-                self.process_certificate(certificate).await?;
-
-                // tokio::task::spawn_blocking(move || {
-                //     certificate
-                //         .verify(&committee, &sorted_keys, &combined_key)
-                //         .map_err(DagError::from)
-                //         .unwrap();
-                //     debug!(
-                //         "Certificate verified for header {:?} round {:?}",
-                //         certificate.header_id, certificate.round
-                //     );
-                //     let _ =
-                //         tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
-                // });
+                tokio::task::spawn_blocking(move || {
+                    certificate
+                        .verify(&committee, &sorted_keys, &combined_key)
+                        .map_err(DagError::from)
+                        .unwrap();
+                    debug!(
+                        "Certificate verified for header {:?} round {:?}",
+                        certificate.header_id, certificate.round
+                    );
+                    let _ =
+                        tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
+                });
             }
         }
 
