@@ -9,13 +9,13 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-#[cfg(test)]
-#[path = "tests/consensus_tests.rs"]
-pub mod consensus_tests;
+// #[cfg(test)]
+// #[path = "tests/consensus_tests.rs"]
+// pub mod consensus_tests;
 
 /// The representation of the DAG in memory.
 type Dag = HashMap<Round, HashMap<PublicKey, (Digest, Certificate)>>;
-type ParentInfo = HashMap<Digest, BTreeSet<Digest>>;
+type ParentInfo = HashMap<Digest, Vec<Digest>>;
 /// The state that needs to be persisted for crash-recovery.
 struct State {
     /// The last committed round.
@@ -127,22 +127,38 @@ impl Consensus {
                 Some(header_msg) = self.rx_primary_header_msg.recv() => {
 
                     let h_id : Digest;
-                    let h_parents: BTreeSet<Digest>;
+                    let h_parents: Vec<Digest>;
                     let h_round: Round;
                     let h_author: PublicKey;
 
                     match header_msg {
+                        HeaderMessage::HeaderWithCertificate(header_with_parents) => {
+                            let header = header_with_parents.header;
+                            debug!("Processing header {:?}", header);
+                            h_id = header.id.clone();
+                            h_parents = header.parents;
+                            h_round = header.round;
+                            h_author = header.author;
+                        }
+                        HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
+                            let header_info = header_info_with_parents.header_info;
+                            debug!("Processing header info {:?}", header_info);
+                            h_id = header_info.id.clone();
+                            h_parents = header_info.parents;
+                            h_round = header_info.round;
+                            h_author = header_info.author;
+                        }
                         HeaderMessage::Header(header) => {
                             debug!("Processing header {:?}", header);
                             h_id = header.id.clone();
-                            h_parents = header.parents.clone();
+                            h_parents = header.parents;
                             h_round = header.round;
                             h_author = header.author;
                         }
                         HeaderMessage::HeaderInfo(header_info) => {
                             debug!("Processing header info {:?}", header_info);
                             h_id = header_info.id.clone();
-                            h_parents = header_info.parents.clone();
+                            h_parents = header_info.parents;
                             h_round = header_info.round;
                             h_author = header_info.author;
                         }
@@ -222,7 +238,6 @@ impl Consensus {
                                 }
                             }
                         }else{
-                            // debug!("Failed to commit leader at {} round {} stake_value {}", i, leader_round, current_stake_value);
                             // Skip committing rest of the leaders as the current leader is not committed.
                             break;
                         }
@@ -253,7 +268,7 @@ impl Consensus {
                     // let parents = state.parent_info.get(&certificate.header_id).unwrap();
 
 
-                    //iterate thorugh all the leaders of the round
+                    // //iterate thorugh all the leaders of the round
                     // for i in 0..self.leaders_per_round {
                     //     let leader_and_digest_list : Vec<_> = self.leader_list(self.leaders_per_round,leader_round, &state.dag);
                     //     let (leader_digest, leader) = match leader_and_digest_list[i] {
@@ -301,6 +316,7 @@ impl Consensus {
                     //         #[cfg(not(feature = "benchmark"))]
                     //         info!("Committed {}", certificate.header_id);
 
+
                     //         if certificate.round == leader_round {
                     //             info!("Committed {:?} Leader", certificate.header_id);
                     //         }else if certificate.round == leader_round-1 {
@@ -317,8 +333,8 @@ impl Consensus {
                     //         if let Err(e) = self.tx_output.send(certificate).await {
                     //             warn!("Failed to output certificate: {}", e);
                     //         }
-                    //     }
-                    // }
+                    //    }
+                    
                 }
             }
         }

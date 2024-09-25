@@ -1,6 +1,6 @@
 use crate::batch_maker::Transaction;
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::messages::{Certificate, Header, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert};
+use crate::messages::{Certificate, Header, HeaderWithCertificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert};
 use crate::primary::Round;
 use config::Committee;
 use crypto::Hash as _;
@@ -38,7 +38,7 @@ pub struct Proposer {
     /// Receives the batch digest from our workers.
     rx_workers: Receiver<Vec<Transaction>>,
     /// Sends newly created headers to the `Core`.
-    tx_core: Sender<Header>,
+    tx_core: Sender<HeaderWithCertificate>,
     /// Sends newly created timeouts to the `Core`.
     tx_core_timeout: Sender<Timeout>,
     /// Receives timeout certs from the `Core`.
@@ -79,7 +79,7 @@ impl Proposer {
         consensus_only: bool,
         rx_core: Receiver<(Vec<Certificate>, Round)>,
         rx_workers: Receiver<Vec<Transaction>>,
-        tx_core: Sender<Header>,
+        tx_core: Sender<HeaderWithCertificate>,
         tx_core_timeout: Sender<Timeout>,
         rx_timeout_cert: Receiver<(TimeoutCert, Round)>,
         tx_core_no_vote_msg: Sender<NoVoteMsg>,
@@ -175,11 +175,13 @@ impl Proposer {
             payload = self.txns.drain(..limit).collect();
         }
 
+        let parents : Vec<Certificate> = self.last_parents.drain(..).collect();
+
         let header = Header::new(
             self.name,
             self.round,
             payload,
-            self.last_parents.drain(..).map(|x| x.header_id).collect(),
+            parents.iter().map(|x| x.header_id).collect(),
             timeout_cert,
             no_vote_certs,
             &mut self.signature_service,
@@ -216,9 +218,14 @@ impl Proposer {
             // NOTE: This log entry is used to compute performance.
         }
 
+        let header_with_parents = HeaderWithCertificate {
+            header,
+            parents
+        };
+
         // Send the new header to the `Core` that will broadcast and process it.
         self.tx_core
-            .send(header)
+            .send(header_with_parents)
             .await
             .expect("Failed to send header");
     }
