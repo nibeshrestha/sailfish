@@ -123,7 +123,7 @@ impl Primary {
 
         // Parse the public and secret key of this authority.
         let name = keypair.name;
-        let name_bls = bls_keypair.nameg2;
+        let _name_bls = bls_keypair.nameg2;
         let secret = keypair.secret;
         let bls_secret = bls_keypair.secret;
 
@@ -195,7 +195,6 @@ impl Primary {
         // The `Core` receives and handles headers, votes, and certificates from the other primaries.
         Core::spawn(
             name,
-            name_bls,
             Arc::new(committee.clone()),
             Arc::new(clan.clone()),
             sorted_keys,
