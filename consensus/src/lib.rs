@@ -3,7 +3,7 @@ use config::{Committee, Stake};
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
 use log::{debug, info, warn};
-use primary::{Certificate, HeaderMessage, Round};
+use primary::{Certificate, ConsensusMessage, HeaderMessage, Round};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -75,7 +75,7 @@ pub struct Consensus {
     /// if it already sent us its whole history.
     rx_primary: Receiver<Certificate>,
     /// Receives new headers from the primary.
-    rx_primary_header_msg: Receiver<HeaderMessage>,
+    rx_primary_header_msg: Receiver<ConsensusMessage>,
     /// Outputs the sequence of ordered certificates to the primary (for cleanup and feedback).
     tx_primary: Sender<Certificate>,
     /// Outputs the sequence of ordered certificates to the application layer.
@@ -94,7 +94,7 @@ impl Consensus {
         committee: Committee,
         gc_depth: Round,
         rx_primary: Receiver<Certificate>,
-        rx_primary_header_msg: Receiver<HeaderMessage>,
+        rx_primary_header_msg: Receiver<ConsensusMessage>,
         tx_primary: Sender<Certificate>,
         tx_output: Sender<Certificate>,
         leaders_per_round: usize,
@@ -132,7 +132,17 @@ impl Consensus {
                     let h_author: PublicKey;
 
                     match header_msg {
-                        HeaderMessage::HeaderWithCertificate(header_with_parents) => {
+                        ConsensusMessage::Certificate(certificate) => {
+                            let round = certificate.round();
+                            state
+                                .dag
+                                .entry(round)
+                                .or_insert_with(HashMap::new)
+                                .insert(certificate.origin(), (certificate.header_id.clone(), certificate.clone()));
+                            continue;
+                        }
+
+                        ConsensusMessage::HeaderWithCertificate(header_with_parents) => {
                             let header = header_with_parents.header;
                             debug!("Processing header {:?}", header);
                             h_id = header.id.clone();
@@ -140,7 +150,7 @@ impl Consensus {
                             h_round = header.round;
                             h_author = header.author;
                         }
-                        HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
+                        ConsensusMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
                             let header_info = header_info_with_parents.header_info;
                             debug!("Processing header info {:?}", header_info);
                             h_id = header_info.id.clone();
@@ -148,14 +158,14 @@ impl Consensus {
                             h_round = header_info.round;
                             h_author = header_info.author;
                         }
-                        HeaderMessage::Header(header) => {
+                        ConsensusMessage::Header(header) => {
                             debug!("Processing header {:?}", header);
                             h_id = header.id.clone();
                             h_parents = header.parents;
                             h_round = header.round;
                             h_author = header.author;
                         }
-                        HeaderMessage::HeaderInfo(header_info) => {
+                        ConsensusMessage::HeaderInfo(header_info) => {
                             debug!("Processing header info {:?}", header_info);
                             h_id = header_info.id.clone();
                             h_parents = header_info.parents;
@@ -194,7 +204,10 @@ impl Consensus {
                         let leader_and_digest_list : Vec<_> = self.leader_list(self.leaders_per_round, leader_round, &state.dag);
                         let (leader_digest, leader) = match leader_and_digest_list[i] {
                             Some(x) => x,
-                            None => break,
+                            None => {
+                                info!("Leader not delivered yet! idx: {} round: {}", i, leader_round);
+                                break;
+                            },
                         };
 
                         let current_stake = self.stake_vote.get(&(leader.round, leader_digest.clone()));
@@ -258,13 +271,13 @@ impl Consensus {
                         .insert(certificate.origin(), (certificate.header_id.clone(), certificate.clone()));
 
                     // Try to order the dag to commit. Start from the previous round and check if it is a leader round.
-                    let r = round - 1;
+                    // let r = round - 1;
 
                     // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
-                    let leader_round = r;
-                    if leader_round <= state.last_committed_round || leader_round == 0 {
-                        continue;
-                    }
+                    // let leader_round = r;
+                    // if leader_round <= state.last_committed_round || leader_round == 0 {
+                    //     continue;
+                    // }
 
                     // let parents = state.parent_info.get(&certificate.header_id).unwrap();
 

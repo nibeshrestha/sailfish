@@ -215,13 +215,13 @@ impl HeaderWaiter {
                                 });
                             }
                             if !requires_sync.is_empty() {
-                                let address = self.committee
-                                    .primary(&author)
-                                    .expect("Author of valid header not in the committee")
-                                    .primary_to_primary;
-                                let message = PrimaryMessage::CertificatesRequest(requires_sync, self.name);
-                                let bytes = bincode::serialize(&message).expect("Failed to serialize cert request");
-                                self.network.send(address, Bytes::from(bytes)).await;
+                                // let address = self.committee
+                                //     .primary(&author)
+                                //     .expect("Author of valid header not in the committee")
+                                //     .primary_to_primary;
+                                // let message = PrimaryMessage::CertificatesRequest(requires_sync, self.name);
+                                // let bytes = bincode::serialize(&message).expect("Failed to serialize cert request");
+                                // self.network.send(address, Bytes::from(bytes)).await;
                             }
                         }
                     }
