@@ -358,7 +358,7 @@ impl Core {
                 h_parents = Some(header_with_parents.parents.clone());
 
                 debug!("Processing {:?}", header);
-                info!("received header_with_cert {:?} {}", h_id, h_round);
+                // info!("received header_with_cert {:?} {}", h_id, h_round);
             }
 
             HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
@@ -369,7 +369,7 @@ impl Core {
                 h_parents = Some(header_info_with_parents.parents.clone());
 
                 debug!("Processing {:?}", header_info);
-                info!("received header_info_with_cert {:?} {}", h_id, h_round);
+                // info!("received header_info_with_cert {:?} {}", h_id, h_round);
             }
 
             HeaderMessage::Header(head) => {
@@ -379,7 +379,7 @@ impl Core {
                 header_info = None;
                 h_parents = None;
 
-                info!("received header {:?} {}", h_id, h_round);
+                // info!("received header {:?} {}", h_id, h_round);
             }
 
             HeaderMessage::HeaderInfo(head_info) => {
@@ -389,7 +389,7 @@ impl Core {
                 header_info = Some(head_info.clone());
                 h_parents = None;
 
-                info!("received header info {:?} {}", h_id, h_round);
+                // info!("received header info {:?} {}", h_id, h_round);
             }
         }
 
@@ -678,10 +678,10 @@ impl Core {
     #[async_recursion]
     async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
         debug!("Processing {:?}", certificate);
-        info!(
-            "received cert for header {:?} round : {}",
-            certificate.header_id, certificate.round
-        );
+        // info!(
+        //     "received cert for header {:?} round : {}",
+        //     certificate.header_id, certificate.round
+        // );
         // Process the header embedded in the certificate if we haven't already voted for it (if we already
         // voted, it means we already processed it). Since this header got certified, we are sure that all
         // the data it refers to (ie. its payload and its parents) are available. We can thus continue the
