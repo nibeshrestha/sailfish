@@ -449,7 +449,7 @@ impl Core {
                     .get_parents(&HeaderType::Header(head.clone()))
                     .await?;
                 if parents.is_empty() {
-                    info!("Processing of {} suspended: missing parent(s)", head.id);
+                    // info!("Processing of {} suspended: missing parent(s)", head.id);
                     return Ok(());
                 }
             }
@@ -523,7 +523,7 @@ impl Core {
                     .get_parents(&HeaderType::HeaderInfo(head.clone()))
                     .await?;
                 if parents.is_empty() {
-                    info!("Processing of {} suspended: missing parent(s)", head.id);
+                    // info!("Processing of {} suspended: missing parent(s)", head.id);
                     return Ok(());
                 }
             }
