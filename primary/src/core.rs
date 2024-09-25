@@ -652,23 +652,30 @@ impl Core {
                 //     .extend(handlers);
 
                 // Process the new certificate.
-                let committee = Arc::clone(&self.committee);
-                let sorted_keys = Arc::clone(&self.sorted_keys);
-                let tx_primary = tx_primary.clone();
-                let combined_key = Arc::clone(&self.combined_pubkey);
+                // let committee = Arc::clone(&self.committee);
+                // let sorted_keys = Arc::clone(&self.sorted_keys);
+                // let tx_primary = tx_primary.clone();
+                // let combined_key = Arc::clone(&self.combined_pubkey);
 
-                tokio::task::spawn_blocking(move || {
-                    certificate
-                        .verify(&committee, &sorted_keys, &combined_key)
-                        .map_err(DagError::from)
-                        .unwrap();
-                    debug!(
-                        "Certificate verified for header {:?} round {:?}",
-                        certificate.header_id, certificate.round
-                    );
-                    let _ =
-                        tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
-                });
+                // tx_primary
+                //     .send(PrimaryMessage::VerifiedCertificate(certificate))
+                //     .await
+                //     .expect("Failed to send no vote message");
+
+                self.process_certificate(certificate).await?;
+
+                // tokio::task::spawn_blocking(move || {
+                //     certificate
+                //         .verify(&committee, &sorted_keys, &combined_key)
+                //         .map_err(DagError::from)
+                //         .unwrap();
+                //     debug!(
+                //         "Certificate verified for header {:?} round {:?}",
+                //         certificate.header_id, certificate.round
+                //     );
+                //     let _ =
+                //         tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
+                // });
             }
         }
 
@@ -722,15 +729,21 @@ impl Core {
                 .await
                 .expect("Failed to send certificate");
         }
-
-        // Send it to the consensus layer.
-        let id = certificate.header_id;
-        debug!("sending certificate {:?} to consensus", id);
-        if let Err(e) = self.tx_consensus.send(certificate).await {
-            warn!(
-                "Failed to deliver certificate {} to the consensus: {}",
-                id, e
-            );
+        if self
+            .processed_certs
+            .entry(certificate.round)
+            .or_insert_with(HashSet::new)
+            .insert(certificate.origin())
+        {
+            // Send it to the consensus layer.
+            let id = certificate.header_id;
+            debug!("sending certificate {:?} to consensus", id);
+            if let Err(e) = self.tx_consensus.send(certificate).await {
+                warn!(
+                    "Failed to deliver certificate {} to the consensus: {}",
+                    id, e
+                );
+            }
         }
         //self.processing_headers.remove(&id);
         //self.processing_vote_aggregators.remove(&id);
