@@ -81,6 +81,7 @@ pub struct Core {
     // current_header: Header,
     // /// Aggregates votes into a certificate.
     // votes_aggregator: VotesAggregator,
+    processed_certs: HashMap<Round, HashSet<PublicKey>>,
     processing_headers: HashMap<Digest, Header>,
     processing_header_infos: HashMap<Digest, HeaderInfo>,
     processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
@@ -153,6 +154,7 @@ impl Core {
                 tx_consensus_header_msg,
                 gc_round: 0,
                 last_voted: HashMap::with_capacity(2 * gc_depth as usize),
+                processed_certs: HashMap::with_capacity(2 * gc_depth as usize),
                 processing_headers: HashMap::new(),
                 processing_header_infos: HashMap::new(),
                 processing_vote_aggregators: HashMap::new(),
@@ -313,16 +315,23 @@ impl Core {
                     .expect("Failed to send certificate");
             }
 
-            let id = certificate.header_id;
-            if let Err(e) = self
-                .tx_consensus_header_msg
-                .send(ConsensusMessage::Certificate(certificate))
-                .await
+            if self
+                .processed_certs
+                .entry(certificate.round)
+                .or_insert_with(HashSet::new)
+                .insert(certificate.origin())
             {
-                warn!(
-                    "Failed to deliver certificate {} to the consensus: {}",
-                    id, e
-                );
+                let id = certificate.header_id;
+                if let Err(e) = self
+                    .tx_consensus_header_msg
+                    .send(ConsensusMessage::Certificate(certificate))
+                    .await
+                {
+                    warn!(
+                        "Failed to deliver certificate {} to the consensus: {}",
+                        id, e
+                    );
+                }
             }
         }
         Ok(())
@@ -947,6 +956,7 @@ impl Core {
             if round > self.gc_depth {
                 let gc_round = round - self.gc_depth;
                 self.last_voted.retain(|k, _| k >= &gc_round);
+                self.processed_certs.retain(|k, _| k >= &gc_round);
                 self.processing_headers.retain(|_, h| &h.round >= &gc_round);
                 self.certificates_aggregators.retain(|k, _| k >= &gc_round);
                 self.cancel_handlers.retain(|k, _| k >= &gc_round);
