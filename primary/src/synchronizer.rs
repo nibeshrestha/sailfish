@@ -9,6 +9,7 @@ use config::Committee;
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
 use store::Store;
+use crate::primary::HeaderType;
 use tokio::sync::mpsc::Sender;
 
 /// The `Synchronizer` checks if we have all batches and parents referenced by a header. If we don't, it sends
@@ -41,7 +42,7 @@ impl Synchronizer {
             tx_certificate_waiter,
             genesis: Header::genesis(committee)
                 .into_iter()
-                .map(|x| (x.id.clone(), x))
+                .map(|x| (x.id, x))
                 .collect(),
         }
     }
@@ -88,38 +89,39 @@ impl Synchronizer {
     /// of the header for when we will have all the parents.
     pub async fn get_parents(
         &mut self,
-        header_msg: &HeaderMessage,
-    ) -> DagResult<Vec<HeaderMessage>> {
-        let h_parents: BTreeSet<Digest>;
+        header_msg: &HeaderType,
+    ) -> DagResult<Vec<HeaderType>> {
+        let h_parents: Vec<_>;
         match header_msg {
-            HeaderMessage::Header(header) => {
+            HeaderType::Header(header) => {
                 h_parents = header.parents.clone();
             }
-            HeaderMessage::HeaderInfo(header_info) => {
+            HeaderType::HeaderInfo(header_info) => {
                 h_parents = header_info.parents.clone();
             }
         }
 
         let mut missing = Vec::new();
         let mut parents = Vec::new();
-        for digest in &h_parents {
+        
+        for parent in &h_parents {
             if let Some(genesis) = self
                 .genesis
                 .iter()
-                .find(|(x, _)| x == digest)
+                .find(|(x, _)| x == parent)
                 .map(|(_, x)| x)
             {
-                let genesis_header_msg = HeaderMessage::Header(genesis.clone());
+                let genesis_header_msg = HeaderType::Header(genesis.clone());
                 parents.push(genesis_header_msg);
                 continue;
             }
 
-            match self.store.read(digest.to_vec()).await? {
+            match self.store.read(parent.to_vec()).await? {
                 Some(h) => {
-                    let header_msg: HeaderMessage = bincode::deserialize(&h).unwrap();
+                    let header_msg: HeaderType = bincode::deserialize(&h).unwrap();
                     parents.push(header_msg)
                 }
-                None => missing.push(digest.clone()),
+                None => missing.push(parent.clone()),
             };
         }
 
@@ -137,26 +139,27 @@ impl Synchronizer {
     /// Check whether we have all the ancestors of the certificate. If we don't, send the certificate to
     /// the `CertificateWaiter` which will trigger re-processing once we have all the missing data.
     pub async fn deliver_certificate(&mut self, certificate: &Certificate) -> DagResult<bool> {
+        
         let key = certificate.header_id.to_vec();
 
         if let Some(head) = self.store.read(key).await.unwrap() {
-            let parents: BTreeSet<Digest>;
-            let header_msg: HeaderMessage = bincode::deserialize(&head).unwrap();
+            let parents: Vec<_>;
+            let header_msg: HeaderType = bincode::deserialize(&head).unwrap();
             match header_msg {
-                HeaderMessage::Header(header) => {
-                    parents = header.parents.clone();
+                HeaderType::Header(header) => {
+                    parents = header.parents;
                 }
-                HeaderMessage::HeaderInfo(header_info) => {
-                    parents = header_info.parents.clone();
+                HeaderType::HeaderInfo(header_info) => {
+                    parents = header_info.parents;
                 }
             }
 
-            for digest in &parents {
-                if self.genesis.iter().any(|(x, _)| x == digest) {
+            for cert in &parents {
+                if self.genesis.iter().any(|(x, _)| x == cert) {
                     continue;
                 }
 
-                if self.store.read(digest.to_vec()).await?.is_none() {
+                if self.store.read(cert.to_vec()).await?.is_none() {
                     self.tx_certificate_waiter
                         .send(certificate.clone())
                         .await

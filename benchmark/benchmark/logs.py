@@ -129,7 +129,8 @@ class LogParser:
 
         if self.consensus_only:
             samples = {}
-            sizes = {}
+            tmp = findall(r'Header ([^ ]+) contains (\d+) B', log)
+            sizes = {d: int(s) for d, s in tmp}
         else:
             tmp = findall(r'Header ([^ ]+) contains sample tx (\d+)', log)
             samples = {int(s): d for d, s in tmp}
@@ -158,6 +159,12 @@ class LogParser:
             ),
             'max_batch_delay': int(
                 search(r'Max batch delay .* (\d+)', log).group(1)
+            ),
+            'transaction_size': int(
+                search(r'Transaction size .* (\d+)', log).group(1)
+            ),
+            'leaders_per_round': int(
+                search(r'Leaders per round .* (\d+)', log).group(1)
             ),
         }
 
@@ -202,6 +209,16 @@ class LogParser:
         tps = bps / self.size[0]
         return tps, bps, duration
 
+    def _consensus_only_throughput(self):
+        if not self.commits:
+            return 0, 0, 0
+        start, end = min(self.proposals.values()), max(self.commits.values())
+        bytes = sum(self.sizes.values())
+        tx_size = self.configs[0]['transaction_size']
+        txns = bytes / tx_size    
+        d = end-start
+        return txns/d
+    
     def _consensus_latency(self):
         latency = [c - self.proposals[d] for d, c in self.commits.items()]
         return mean(latency) if latency else 0
@@ -265,9 +282,13 @@ class LogParser:
             consensus_tps, consensus_bps, _ = self._consensus_throughput()
             end_to_end_tps, end_to_end_bps, duration = self._end_to_end_throughput()
             end_to_end_latency = self._end_to_end_latency() * 1_000
+        else:
+            consensus_tps = self._consensus_only_throughput()
 
-        csv_file_path = f'benchmark_{self.committee_size}_{header_size}_{batch_size}.csv'
-        write_to_csv(round(leader_consensus_latency),round(non_leader_consensus_latency),round(consensus_tps), round(consensus_bps), round(consensus_latency),round(end_to_end_tps),round(end_to_end_bps), round(end_to_end_latency),self.burst,csv_file_path)
+        leaders_per_round = self.configs[0]['leaders_per_round']
+        header_size = self.configs[0]['header_size']
+        csv_file_path = f'benchmark_{self.committee_size}_{leaders_per_round}.csv'
+        write_to_csv(round(leader_consensus_latency),round(non_leader_consensus_latency),round(consensus_tps), round(consensus_bps), round(consensus_latency),round(end_to_end_tps),round(end_to_end_bps), round(end_to_end_latency),self.burst,header_size,csv_file_path)
         
         if self.consensus_only:
             return (
@@ -292,6 +313,7 @@ class LogParser:
                 '\n'
                 ' + RESULTS:\n'
                 f' Consensus BLPS: {round(blps_first):,} Block/s\n'
+                f' Consensus TPS: {round(consensus_tps):,} tx/s\n'
                 f' Consensus latency: {round(consensus_latency):,} ms\n'
                 f' Consensus leader latency: {round(leader_consensus_latency):,} ms\n'
                 f' Consensus non leader latency: {round(non_leader_consensus_latency):,} ms\n'
@@ -360,14 +382,14 @@ class LogParser:
         return cls(clients, primaries, burst, faults=faults,consensus_only = consensus_only)
 
 
-def write_to_csv(con_r0_latency, con_r1_latency, consensus_tps, consensus_bps, consensus_latency, e2e_tps, e2e_bps, e2e_latency, burst, csv_file_path):
+def write_to_csv(con_r0_latency, con_r1_latency, consensus_tps, consensus_bps, consensus_latency, e2e_tps, e2e_bps, e2e_latency, burst, header_size, csv_file_path):
 # Open the CSV file in append mode
     with open(csv_file_path, mode='a', newline='') as csv_file:
         writer = csv.writer(csv_file)
-        column_names = ['Consensus R Latency', 'Consensus R-1 Latency','Consensus Tps', 'Consensus Bps', 'Consensus Latency', 'E2E Tps' , 'E2E Bps', 'E2E Latency', 'Burst']
+        column_names = ['Consensus R Latency', 'Consensus R-1 Latency','Consensus Tps', 'Consensus Bps', 'Consensus Latency', 'E2E Tps' , 'E2E Bps', 'E2E Latency', 'Burst', 'Header size']
         # If the file is empty, write the header
         if csv_file.tell() == 0:
             writer.writerow(column_names)
 
         # Write the extracted data to the CSV file
-        writer.writerow([ con_r0_latency, con_r1_latency, consensus_tps, consensus_bps, consensus_latency, e2e_tps, e2e_bps, e2e_latency, burst])
+        writer.writerow([ con_r0_latency, con_r1_latency, consensus_tps, consensus_bps, consensus_latency, e2e_tps, e2e_bps, e2e_latency, burst, header_size])

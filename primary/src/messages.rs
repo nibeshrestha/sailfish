@@ -19,7 +19,7 @@ pub struct Header {
     pub author: PublicKey,
     pub round: Round,
     pub payload: Vec<Transaction>,
-    pub parents: BTreeSet<Digest>,
+    pub parents: Vec<Digest>,
     pub id: Digest,
     pub signature: Signature,
     pub timeout_cert: TimeoutCert,
@@ -31,7 +31,7 @@ impl Header {
         author: PublicKey,
         round: Round,
         payload: Vec<Transaction>,
-        parents: BTreeSet<Digest>,
+        parents: Vec<Digest>,
         timeout_cert: TimeoutCert,
         no_vote_certs: Vec<NoVoteCert>,
         signature_service: &mut SignatureService,
@@ -88,9 +88,9 @@ impl Hash for Header {
         for x in &self.payload {
             hasher.update(x);
         }
-        for x in &self.parents {
-            hasher.update(x);
-        }
+        // for x in &self.parents {
+        //     hasher.update(x);
+        // }
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }
@@ -108,11 +108,43 @@ impl fmt::Display for Header {
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
+pub struct HeaderWithCertificate {
+    pub header : Header,
+    pub parents: Vec<Certificate>,
+}
+impl fmt::Debug for HeaderWithCertificate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}: B{}({})", self.header.id, self.header.round, self.header.author,)
+    }
+}
+impl fmt::Display for HeaderWithCertificate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "B{}({})", self.header.round, self.header.author)
+    }
+}
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct HeaderInfoWithCertificate {
+    pub header_info : HeaderInfo,
+    pub parents: Vec<Certificate>,
+}
+impl fmt::Debug for HeaderInfoWithCertificate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}: B{}({})", self.header_info.id, self.header_info.round, self.header_info.author,)
+    }
+}
+impl fmt::Display for HeaderInfoWithCertificate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "B{}({})", self.header_info.round, self.header_info.author)
+    }
+}
+
+
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct HeaderInfo {
     pub author: PublicKey,
     pub round: Round,
     pub payload: Digest,
-    pub parents: BTreeSet<Digest>,
+    pub parents: Vec<Digest>,
     pub id: Digest,
     pub signature: Signature,
     pub timeout_cert: TimeoutCert,

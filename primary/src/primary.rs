@@ -5,7 +5,7 @@ use crate::error::DagError;
 use crate::garbage_collector::GarbageCollector;
 use crate::header_waiter::HeaderWaiter;
 use crate::helper::Helper;
-use crate::messages::{Certificate, Header, HeaderInfo, NoVoteMsg, Timeout, Vote};
+use crate::messages::{Certificate, Header, HeaderInfo, HeaderWithCertificate, HeaderInfoWithCertificate, NoVoteMsg, Timeout, Vote};
 // use crate::payload_receiver::PayloadReceiver;
 use crate::proposer::Proposer;
 use crate::synchronizer::Synchronizer;
@@ -45,6 +45,14 @@ pub enum PrimaryMessage {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum HeaderMessage {
+    HeaderWithCertificate(HeaderWithCertificate),
+    HeaderInfoWithCertificate(HeaderInfoWithCertificate),
+    Header(Header),
+    HeaderInfo(HeaderInfo)
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum HeaderType {
     Header(Header),
     HeaderInfo(HeaderInfo),
 }
@@ -178,7 +186,7 @@ impl Primary {
             name,
             name_bls,
             Arc::new(committee.clone()),
-            Arc::new(clan),
+            Arc::new(clan.clone()),
             sorted_keys,
             Arc::new(combined_key),
             store.clone(),
@@ -253,7 +261,7 @@ impl Primary {
         );
 
         // The `Helper` is dedicated to reply to certificates requests from other primaries.
-        Helper::spawn(committee.clone(), store, rx_cert_requests);
+        Helper::spawn(committee.clone(), clan, store, rx_cert_requests);
 
         // NOTE: This log entry is used to compute performance.
         info!(

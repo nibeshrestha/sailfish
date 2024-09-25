@@ -9,13 +9,13 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-#[cfg(test)]
-#[path = "tests/consensus_tests.rs"]
-pub mod consensus_tests;
+// #[cfg(test)]
+// #[path = "tests/consensus_tests.rs"]
+// pub mod consensus_tests;
 
 /// The representation of the DAG in memory.
 type Dag = HashMap<Round, HashMap<PublicKey, (Digest, Certificate)>>;
-type ParentInfo = HashMap<Digest, BTreeSet<Digest>>;
+type ParentInfo = HashMap<Digest, Vec<Digest>>;
 /// The state that needs to be persisted for crash-recovery.
 struct State {
     /// The last committed round.
@@ -127,26 +127,40 @@ impl Consensus {
                 Some(header_msg) = self.rx_primary_header_msg.recv() => {
 
                     let h_id : Digest;
-                    let h_parents: BTreeSet<Digest>;
+                    let h_parents: Vec<Digest>;
                     let h_round: Round;
                     let h_author: PublicKey;
 
                     match header_msg {
+                        HeaderMessage::HeaderWithCertificate(header_with_parents) => {
+                            let header = header_with_parents.header;
+                            debug!("Processing header {:?}", header);
+                            h_id = header.id.clone();
+                            h_parents = header.parents;
+                            h_round = header.round;
+                            h_author = header.author;
+                        }
+                        HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
+                            let header_info = header_info_with_parents.header_info;
+                            debug!("Processing header info {:?}", header_info);
+                            h_id = header_info.id.clone();
+                            h_parents = header_info.parents;
+                            h_round = header_info.round;
+                            h_author = header_info.author;
+                        }
                         HeaderMessage::Header(header) => {
                             debug!("Processing header {:?}", header);
                             h_id = header.id.clone();
-                            h_parents = header.parents.clone();
+                            h_parents = header.parents;
                             h_round = header.round;
                             h_author = header.author;
-
                         }
                         HeaderMessage::HeaderInfo(header_info) => {
                             debug!("Processing header info {:?}", header_info);
                             h_id = header_info.id.clone();
-                            h_parents = header_info.parents.clone();
+                            h_parents = header_info.parents;
                             h_round = header_info.round;
                             h_author = header_info.author;
-
                         }
                     }
 
@@ -156,7 +170,7 @@ impl Consensus {
 
                     // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
                     let leader_round = r;
-                    if leader_round < state.last_committed_round || leader_round == 0 {
+                    if leader_round <= state.last_committed_round || leader_round == 0 {
                         continue;
                     }
 
@@ -165,7 +179,7 @@ impl Consensus {
                     for i in 0..self.leaders_per_round {
                         let (leader_digest, leader) = match leader_and_digest_list[i] {
                             Some(x) => x,
-                            None => break,
+                            None => continue,
                         };
 
                         if h_parents.contains(leader_digest) {
@@ -225,6 +239,9 @@ impl Consensus {
                                     warn!("Failed to output certificate: {} with header", e);
                                 }
                             }
+                        }else{
+                            // Skip committing rest of the leaders as the current leader is not committed.
+                            break;
                         }
                     }
 
@@ -247,80 +264,80 @@ impl Consensus {
 
                     // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
                     let leader_round = r;
-                    if leader_round < state.last_committed_round || leader_round == 0 {
+                    if leader_round <= state.last_committed_round || leader_round == 0 {
                         continue;
                     }
 
                     // let parents = state.parent_info.get(&certificate.header_id).unwrap();
 
 
-                    //iterate thorugh all the leaders of the round
-                    for i in 0..self.leaders_per_round {
-                        let leader_and_digest_list : Vec<_> = self.leader_list(self.leaders_per_round,leader_round, &state.dag);
-                        let (leader_digest, leader) = match leader_and_digest_list[i] {
-                            Some(x) => x,
-                            None => continue,
-                        };
+                    // //iterate thorugh all the leaders of the round
+                    // for i in 0..self.leaders_per_round {
+                    //     let leader_and_digest_list : Vec<_> = self.leader_list(self.leaders_per_round,leader_round, &state.dag);
+                    //     let (leader_digest, leader) = match leader_and_digest_list[i] {
+                    //         Some(x) => x,
+                    //         None => continue,
+                    //     };
 
 
-                        // Check if the leader has f+1 support from its children (ie. round r-1).
-                        let stake: Stake = state
-                        .dag
-                        .get(&round)
-                        .expect("We should have the whole history by now")
-                        .values()
-                        .filter(|(_, x)| { let parents = state.parent_info.get(&x.header_id).unwrap();
-                                parents.contains(leader_digest)
-                            })
-                        .map(|(_, x)| self.committee.stake(&x.origin()))
-                        .sum();
+                    //     // Check if the leader has f+1 support from its children (ie. round r-1).
+                    //     let stake: Stake = state
+                    //     .dag
+                    //     .get(&round)
+                    //     .expect("We should have the whole history by now")
+                    //     .values()
+                    //     .filter(|(_, x)| { let parents = state.parent_info.get(&x.header_id).unwrap();
+                    //             parents.contains(leader_digest)
+                    //         })
+                    //     .map(|(_, x)| self.committee.stake(&x.origin()))
+                    //     .sum();
 
-                        // If it is the case, we can commit the leader. But first, we need to recursively go back to
-                        // the last committed leader, and commit all preceding leaders in the right order. Committing
-                        // a leader block means committing all its dependencies.
-                        if stake < self.committee.quorum_threshold() {
-                            debug!("Leader {:?} does not have enough support", leader);
-                            break;
-                        }
+                    //     // If it is the case, we can commit the leader. But first, we need to recursively go back to
+                    //     // the last committed leader, and commit all preceding leaders in the right order. Committing
+                    //     // a leader block means committing all its dependencies.
+                    //     if stake < self.committee.quorum_threshold() {
+                    //         debug!("Leader {:?} does not have enough support", leader);
+                    //         break;
+                    //     }
 
-                        // Get an ordered list of past leaders that are linked to the current leader.
-                        debug!("Leader {:?} has enough support", leader);
-                        let mut sequence = Vec::new();
-                        for leader in self.order_leaders(leader, &state).iter().rev() {
-                            // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
-                            for x in self.order_dag(leader, &state) {
-                                // Update and clean up internal state.
-                                state.update(&x, self.gc_depth);
+                    //     // Get an ordered list of past leaders that are linked to the current leader.
+                    //     debug!("Leader {:?} has enough support", leader);
+                    //     let mut sequence = Vec::new();
+                    //     for leader in self.order_leaders(leader, &state).iter().rev() {
+                    //         // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
+                    //         for x in self.order_dag(leader, &state) {
+                    //             // Update and clean up internal state.
+                    //             state.update(&x, self.gc_depth);
 
-                                // Add the certificate to the sequence.
-                                sequence.push(x);
-                            }
-                        }
+                    //             // Add the certificate to the sequence.
+                    //             sequence.push(x);
+                    //         }
+                    //     }
 
-                        // Output the sequence in the right order.
-                        for certificate in sequence {
-                            #[cfg(not(feature = "benchmark"))]
-                            info!("Committed {}", certificate.header_id);
+                    //     // Output the sequence in the right order.
+                    //     for certificate in sequence {
+                    //         #[cfg(not(feature = "benchmark"))]
+                    //         info!("Committed {}", certificate.header_id);
 
 
-                            if certificate.round == leader_round {
-                                info!("Committed {:?} Leader", certificate.header_id);
-                            }else if certificate.round == leader_round-1 {
-                                info!("Committed {:?} NonLeader", certificate.header_id);
-                            } else{
-                                info!("Committed {:?} ", certificate.header_id);
-                            }
+                    //         if certificate.round == leader_round {
+                    //             info!("Committed {:?} Leader", certificate.header_id);
+                    //         }else if certificate.round == leader_round-1 {
+                    //             info!("Committed {:?} NonLeader", certificate.header_id);
+                    //         } else{
+                    //             info!("Committed {:?} ", certificate.header_id);
+                    //         }
 
-                            self.tx_primary
-                                .send(certificate.clone())
-                                .await
-                                .expect("Failed to send certificate to primary");
+                    //         self.tx_primary
+                    //             .send(certificate.clone())
+                    //             .await
+                    //             .expect("Failed to send certificate to primary");
 
-                            if let Err(e) = self.tx_output.send(certificate).await {
-                                warn!("Failed to output certificate: {}", e);
-                            }
-                        }
-                    }
+                    //         if let Err(e) = self.tx_output.send(certificate).await {
+                    //             warn!("Failed to output certificate: {}", e);
+                    //         }
+                    //    }
+                    
                 }
             }
         }

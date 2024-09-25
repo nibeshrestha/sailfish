@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::messages::{Certificate, Header};
-use crate::primary::HeaderMessage;
+use crate::primary::{HeaderMessage, HeaderType};
 use futures::future::try_join_all;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
@@ -67,15 +67,15 @@ impl CertificateWaiter {
 
                     let key = certificate.header_id.to_vec();
 
-                    if let Some(res) = self.store.read(key).await.unwrap() {
+                    if let Some(res) = self.store.read(key.clone()).await.unwrap() {
                         let header_msg = bincode::deserialize(&res).unwrap();
 
-                        let parents: BTreeSet<_>;
+                        let parents: Vec<_>;
                         match header_msg {
-                            HeaderMessage::Header(header) => {
+                            HeaderType::Header(header) => {
                                 parents = header.parents;
                             }
-                            HeaderMessage::HeaderInfo(header_info) => {
+                            HeaderType::HeaderInfo(header_info) => {
                                 parents = header_info.parents;
                             }
                         }
@@ -86,6 +86,10 @@ impl CertificateWaiter {
                         .map(|x| (x.to_vec(), self.store.clone()))
                         .collect();
 
+                        let fut = Self::waiter(wait_for, certificate);
+                        waiting.push(fut);
+                    }else{
+                        let wait_for = vec![(key, self.store.clone())];
                         let fut = Self::waiter(wait_for, certificate);
                         waiting.push(fut);
                     }
