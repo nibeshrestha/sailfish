@@ -3,10 +3,8 @@ use crate::error::DagResult;
 use crate::header_waiter::WaiterMessage;
 use crate::messages::{Certificate, Header};
 use crate::primary::HeaderType;
-use crate::HeaderMessage;
 use config::Committee;
 use crypto::{Digest, PublicKey};
-use log::info;
 use store::Store;
 use tokio::sync::mpsc::Sender;
 
