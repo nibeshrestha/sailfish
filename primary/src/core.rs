@@ -334,339 +334,222 @@ impl Core {
         tx_primary: &Arc<Sender<PrimaryMessage>>,
     ) -> DagResult<()> {
 
+        let h_id : Digest;
+        let h_round : Round;
+        let header : Option<Header>;
+        let header_info: Option<HeaderInfo>;
+        let h_parents : Option<Vec<Certificate>>;
+
         match header_msg {
             HeaderMessage::HeaderWithCertificate(header_with_parents) => {
-                let header = header_with_parents.header.clone();
+                h_id = header_with_parents.header.id;
+                h_round = header_with_parents.header.round;
+                header = Some(header_with_parents.header.clone());
+                header_info = None;
+                h_parents = Some(header_with_parents.parents.clone());
+
                 debug!("Processing {:?}", header);
-
-                // Indicate that we are processing this header.
-                self.processing_headers
-                    .entry(header.id)
-                    .or_insert(header.clone());
-                self.processing_vote_aggregators
-                    .entry(header.id)
-                    .or_insert(VotesAggregator::new(
-                        self.sorted_keys.clone(),
-                        self.committee.size(),
-                    ));
-
-                info!("received header_with_cert {:?} {}", header.id, header.round);
-
-                self.process_parent_certificates(header_with_parents.parents.clone())
-                    .await?;
-
-                // Check if we can vote for this header.
-                if self
-                    .last_voted
-                    .entry(header.round)
-                    .or_insert_with(HashSet::new)
-                    .insert(header.author)
-                {
-                    // Make a vote and send it to all nodes
-                    let vote =
-                        Vote::new(&header, &self.name, &mut self.bls_signature_service).await;
-                    // debug!("Created {:?}", vote);
-
-                    let addresses = self
-                        .committee
-                        .others_primaries(&self.name)
-                        .iter()
-                        .map(|(_, x)| x.primary_to_primary)
-                        .collect();
-                    let bytes = bincode::serialize(&PrimaryMessage::Vote(vote.clone()))
-                        .expect("Failed to serialize our own vote");
-                    let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
-                    self.cancel_handlers
-                        .entry(header.round)
-                        .or_insert_with(Vec::new)
-                        .extend(handlers);
-
-                    self.process_vote(vote, tx_primary)
-                        .await
-                        .expect("Failed to process our own vote");
-                }
-
-                // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
-                // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
-                // reschedule processing of this header.
-
-                if header.round != 1 {
-                    let parents = self
-                        .synchronizer
-                        .get_parents(&HeaderType::Header(header.clone()))
-                        .await?;
-                    if parents.is_empty() {
-                        debug!("Processing of {} suspended: missing parent(s)", header.id);
-                        return Ok(());
-                    }
-                }
-
-                // Send header to consensus
-                self.tx_consensus_header_msg
-                .send(header_msg.clone())
-                .await
-                .expect("Failed to send header to consensus");
-
-                // Store the header.
-                let header_type = HeaderType::Header(header.clone());
-                let bytes = bincode::serialize(&header_type).expect("Failed to serialize header");
-                self.store.write(header.id.to_vec(), bytes).await;
-                return Ok(());
+                info!(
+                    "received header_with_cert {:?} {}",
+                    h_id, h_round
+                );
             }
 
             HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
-                let header_info = header_info_with_parents.header_info.clone();
+                h_id = header_info_with_parents.header_info.id;
+                h_round = header_info_with_parents.header_info.round;
+                header = None;
+                header_info = Some(header_info_with_parents.header_info.clone());
+                h_parents = Some(header_info_with_parents.parents.clone());
 
                 debug!("Processing {:?}", header_info);
                 info!(
                     "received header_info_with_cert {:?} {}",
-                    header_info.id, header_info.round
+                    h_id, h_round
                 );
-
-                // Indicate that we are processing this header.
-                self.processing_header_infos
-                    .entry(header_info.id)
-                    .or_insert(header_info.clone());
-                self.processing_vote_aggregators
-                    .entry(header_info.id)
-                    .or_insert(VotesAggregator::new(
-                        self.sorted_keys.clone(),
-                        self.committee.size(),
-                    ));
-
-                self.process_parent_certificates(header_info_with_parents.parents.clone())
-                    .await?;
-
-                // Check if we can vote for this header.
-                if self
-                    .last_voted
-                    .entry(header_info.round)
-                    .or_insert_with(HashSet::new)
-                    .insert(header_info.author)
-                {
-                    // Make a vote and send it to all nodes
-                    let vote = Vote::new_for_header_info(
-                        &header_info,
-                        &self.name,
-                        &mut self.bls_signature_service,
-                    )
-                    .await;
-                    // debug!("Created {:?}", vote);
-
-                    let addresses = self
-                        .committee
-                        .others_primaries(&self.name)
-                        .iter()
-                        .map(|(_, x)| x.primary_to_primary)
-                        .collect();
-                    let bytes = bincode::serialize(&PrimaryMessage::Vote(vote.clone()))
-                        .expect("Failed to serialize our own vote");
-                    let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
-                    self.cancel_handlers
-                        .entry(header_info.round)
-                        .or_insert_with(Vec::new)
-                        .extend(handlers);
-
-                    self.process_vote(vote, tx_primary)
-                        .await
-                        .expect("Failed to process our own vote");
-                }
-
-                // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
-                // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
-                // reschedule processing of this header.
-
-                if header_info.round != 1 {
-                    let parents = self
-                        .synchronizer
-                        .get_parents(&HeaderType::HeaderInfo(header_info.clone()))
-                        .await?;
-                    if parents.is_empty() {
-                        info!(
-                            "Processing of {} suspended: missing parent(s)",
-                            header_info.id
-                        );
-                        return Ok(());
-                    }
-                }
-
-                // Send header to consensus
-                self.tx_consensus_header_msg
-                .send(header_msg.clone())
-                .await
-                .expect("Failed to send header to consensus");
-
-                let header_type = HeaderType::HeaderInfo(header_info.clone());
-                // Store the header.
-                let bytes =
-                    bincode::serialize(&header_type).expect("Failed to serialize header info");
-                self.store.write(header_info.id.to_vec(), bytes).await;
-
-                return Ok(());
+                
             }
 
-            HeaderMessage::Header(header) => {
-                debug!("Processing {:?}", header);
+            HeaderMessage::Header(head) => {
+                h_id = head.id;
+                h_round = head.round;
+                header = Some(head.clone());
+                header_info = None;
+                h_parents = None;
 
-                // Indicate that we are processing this header.
-                self.processing_headers
-                    .entry(header.id)
-                    .or_insert(header.clone());
-                self.processing_vote_aggregators
-                    .entry(header.id)
-                    .or_insert(VotesAggregator::new(
-                        self.sorted_keys.clone(),
-                        self.committee.size(),
-                    ));
-
-                info!("received header {:?} {}", header.id, header.round);
-
-                // Check if we can vote for this header.
-                if self
-                    .last_voted
-                    .entry(header.round)
-                    .or_insert_with(HashSet::new)
-                    .insert(header.author)
-                {
-                    // Make a vote and send it to all nodes
-                    let vote =
-                        Vote::new(&header, &self.name, &mut self.bls_signature_service).await;
-                    // debug!("Created {:?}", vote);
-
-                    let addresses = self
-                        .committee
-                        .others_primaries(&self.name)
-                        .iter()
-                        .map(|(_, x)| x.primary_to_primary)
-                        .collect();
-                    let bytes = bincode::serialize(&PrimaryMessage::Vote(vote.clone()))
-                        .expect("Failed to serialize our own vote");
-                    let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
-                    self.cancel_handlers
-                        .entry(header.round)
-                        .or_insert_with(Vec::new)
-                        .extend(handlers);
-
-                    self.process_vote(vote, tx_primary)
-                        .await
-                        .expect("Failed to process our own vote");
-                }
-
-                // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
-                // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
-                // reschedule processing of this header.
-
-                if header.round != 1 {
-                    let parents = self
-                        .synchronizer
-                        .get_parents(&HeaderType::Header(header.clone()))
-                        .await?;
-                    if parents.is_empty() {
-                        debug!("Processing of {} suspended: missing parent(s)", header.id);
-                        return Ok(());
-                    }
-                }
-
-                // Send header to consensus
-                self.tx_consensus_header_msg
-                .send(header_msg.clone())
-                .await
-                .expect("Failed to send header to consensus");
-
-                // Store the header.
-                let header_type = HeaderType::Header(header.clone());
-                let bytes = bincode::serialize(&header_type).expect("Failed to serialize header");
-                self.store.write(header.id.to_vec(), bytes).await;
-
-                return Ok(());
+                info!(
+                    "received header {:?} {}",
+                    h_id, h_round
+                );
             }
 
-            HeaderMessage::HeaderInfo(header_info) => {
-                debug!("Processing {:?}", header_info);
+            HeaderMessage::HeaderInfo(head_info) => {
+                
+                h_id = head_info.id;
+                h_round = head_info.round;
+                header = None;
+                header_info = Some(head_info.clone());
+                h_parents = None;
+
                 info!(
                     "received header info {:?} {}",
-                    header_info.id, header_info.round
+                    h_id, h_round
                 );
-
-                // Indicate that we are processing this header.
-                self.processing_header_infos
-                    .entry(header_info.id)
-                    .or_insert(header_info.clone());
-                self.processing_vote_aggregators
-                    .entry(header_info.id)
-                    .or_insert(VotesAggregator::new(
-                        self.sorted_keys.clone(),
-                        self.committee.size(),
-                    ));
-
-                // Check if we can vote for this header.
-                if self
-                    .last_voted
-                    .entry(header_info.round)
-                    .or_insert_with(HashSet::new)
-                    .insert(header_info.author)
-                {
-                    // Make a vote and send it to all nodes
-                    let vote = Vote::new_for_header_info(
-                        &header_info,
-                        &self.name,
-                        &mut self.bls_signature_service,
-                    )
-                    .await;
-                    // debug!("Created {:?}", vote);
-
-                    let addresses = self
-                        .committee
-                        .others_primaries(&self.name)
-                        .iter()
-                        .map(|(_, x)| x.primary_to_primary)
-                        .collect();
-                    let bytes = bincode::serialize(&PrimaryMessage::Vote(vote.clone()))
-                        .expect("Failed to serialize our own vote");
-                    let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
-                    self.cancel_handlers
-                        .entry(header_info.round)
-                        .or_insert_with(Vec::new)
-                        .extend(handlers);
-
-                    self.process_vote(vote, tx_primary)
-                        .await
-                        .expect("Failed to process our own vote");
-                }
-
-                // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
-                // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
-                // reschedule processing of this header.
-
-                if header_info.round != 1 {
-                    let parents = self
-                        .synchronizer
-                        .get_parents(&HeaderType::HeaderInfo(header_info.clone()))
-                        .await?;
-                    if parents.is_empty() {
-                        info!(
-                            "Processing of {} suspended: missing parent(s)",
-                            header_info.id
-                        );
-                        return Ok(());
-                    }
-                }
-
-                // Send header to consensus
-                self.tx_consensus_header_msg
-                .send(header_msg.clone())
-                .await
-                .expect("Failed to send header to consensus");
-
-                let header_type = HeaderType::HeaderInfo(header_info.clone());
-                // Store the header.
-                let bytes =
-                    bincode::serialize(&header_type).expect("Failed to serialize header info");
-                self.store.write(header_info.id.to_vec(), bytes).await;
-
-                return Ok(());
             }
         }
+
+        if let Some(head) = header {
+            // Indicate that we are processing this header.
+            self.processing_headers
+            .entry(head.id)
+            .or_insert(head.clone());
+            self.processing_vote_aggregators
+                .entry(head.id)
+                .or_insert(VotesAggregator::new(
+                    self.sorted_keys.clone(),
+                    self.committee.size(),
+                ));
+            
+            if let Some(parents) = h_parents {
+                self.process_parent_certificates(parents.clone())
+                .await?;
+            }
+            
+            // Check if we can vote for this header.
+            if self
+                .last_voted
+                .entry(head.round)
+                .or_insert_with(HashSet::new)
+                .insert(head.author)
+            {
+                // Make a vote and send it to all nodes
+                let vote =
+                    Vote::new(&head, &self.name, &mut self.bls_signature_service).await;
+                // debug!("Created {:?}", vote);
+
+                let addresses = self
+                    .committee
+                    .others_primaries(&self.name)
+                    .iter()
+                    .map(|(_, x)| x.primary_to_primary)
+                    .collect();
+                let bytes = bincode::serialize(&PrimaryMessage::Vote(vote.clone()))
+                    .expect("Failed to serialize our own vote");
+                let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
+                self.cancel_handlers
+                    .entry(head.round)
+                    .or_insert_with(Vec::new)
+                    .extend(handlers);
+
+                self.process_vote(vote, tx_primary)
+                    .await
+                    .expect("Failed to process our own vote");
+            }
+
+            // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
+            // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
+            // reschedule processing of this header.
+
+            if head.round != 1 {
+                let parents = self
+                    .synchronizer
+                    .get_parents(&HeaderType::Header(head.clone()))
+                    .await?;
+                if parents.is_empty() {
+                    debug!("Processing of {} suspended: missing parent(s)", head.id);
+                    return Ok(());
+                }
+            }
+
+            // Send header to consensus
+            self.tx_consensus_header_msg
+            .send(header_msg.clone())
+            .await
+            .expect("Failed to send header to consensus");
+
+            // Store the header.
+            let header_type = HeaderType::Header(head.clone());
+            let bytes = bincode::serialize(&header_type).expect("Failed to serialize header");
+            self.store.write(head.id.to_vec(), bytes).await;
+            return Ok(());
+
+        }else if let Some(head) = header_info {
+            // Indicate that we are processing this header.
+            self.processing_header_infos
+            .entry(head.id)
+            .or_insert(head.clone());
+            self.processing_vote_aggregators
+                .entry(head.id)
+                .or_insert(VotesAggregator::new(
+                    self.sorted_keys.clone(),
+                    self.committee.size(),
+                ));
+            
+            if let Some(parents) = h_parents {
+                self.process_parent_certificates(parents.clone())
+                .await?;
+            }
+            
+            // Check if we can vote for this header.
+            if self
+                .last_voted
+                .entry(head.round)
+                .or_insert_with(HashSet::new)
+                .insert(head.author)
+            {
+                // Make a vote and send it to all nodes
+                let vote =
+                    Vote::new_for_header_info(&head, &self.name, &mut self.bls_signature_service).await;
+                // debug!("Created {:?}", vote);
+
+                let addresses = self
+                    .committee
+                    .others_primaries(&self.name)
+                    .iter()
+                    .map(|(_, x)| x.primary_to_primary)
+                    .collect();
+                let bytes = bincode::serialize(&PrimaryMessage::Vote(vote.clone()))
+                    .expect("Failed to serialize our own vote");
+                let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
+                self.cancel_handlers
+                    .entry(head.round)
+                    .or_insert_with(Vec::new)
+                    .extend(handlers);
+
+                self.process_vote(vote, tx_primary)
+                    .await
+                    .expect("Failed to process our own vote");
+            }
+
+            // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
+            // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
+            // reschedule processing of this header.
+
+            if head.round != 1 {
+                let parents = self
+                    .synchronizer
+                    .get_parents(&HeaderType::HeaderInfo(head.clone()))
+                    .await?;
+                if parents.is_empty() {
+                    debug!("Processing of {} suspended: missing parent(s)", head.id);
+                    return Ok(());
+                }
+            }
+
+            // Send header to consensus
+            self.tx_consensus_header_msg
+            .send(header_msg.clone())
+            .await
+            .expect("Failed to send header to consensus");
+
+            // Store the header.
+            let header_type = HeaderType::HeaderInfo(head.clone());
+            let bytes = bincode::serialize(&header_type).expect("Failed to serialize header");
+            self.store.write(head.id.to_vec(), bytes).await;
+            return Ok(());
+        }
+        Ok(())
+                
     }
 
     #[async_recursion]
