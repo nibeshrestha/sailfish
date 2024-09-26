@@ -438,7 +438,7 @@ impl Clan {
     ) -> Vec<(PublicKey, PrimaryAddresses)> {
         self.members
             .iter()
-            .filter(|(name, clanmem)| name != &myself)
+            .filter(|(name, _)| name != &myself)
             .map(|(name, clan_member)| (*name, clan_member.primary.clone()))
             .collect()
     }

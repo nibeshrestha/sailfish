@@ -7,7 +7,6 @@ use crate::messages::{Certificate, Header, HeaderInfo};
 use crate::primary::HeaderType;
 use crate::HeaderMessage;
 use config::Committee;
-use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
 use store::Store;
 use tokio::sync::mpsc::Sender;

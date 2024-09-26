@@ -516,7 +516,7 @@ impl Certificate {
         committee
             .authorities
             .keys()
-            .map(|name| Self { ..Self::default() })
+            .map(|_| Self { ..Self::default() })
             .collect()
     }
 
