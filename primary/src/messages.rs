@@ -75,7 +75,7 @@ impl Header {
         committee
             .authorities
             .keys()
-            .map(|name| Self { ..Self::default() })
+            .map(|_| Self { ..Self::default() })
             .collect()
     }
 }
@@ -152,16 +152,16 @@ pub struct HeaderInfo {
 }
 
 impl HeaderInfo {
-    pub fn create_from(header: Header) -> Self {
+    pub fn create_from(header: &Header) -> Self {
         let header_info = Self {
             author: header.author,
             round: header.round,
             payload: payload_digest(&header),
-            parents: header.parents,
+            parents: header.parents.clone(),
             id: header.id,
-            signature: header.signature,
-            timeout_cert: header.timeout_cert,
-            no_vote_certs: header.no_vote_certs,
+            signature: header.signature.clone(),
+            timeout_cert: header.timeout_cert.clone(),
+            no_vote_certs: header.no_vote_certs.clone(),
         };
 
         header_info
