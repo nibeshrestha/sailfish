@@ -32,8 +32,11 @@ pub struct Core {
     name: PublicKey,
     /// The committee information.
     committee: Arc<Committee>,
+    /// The clan information.
     clan: Arc<Clan>,
+    /// The vector of sorted keys.
     sorted_keys: Arc<Vec<PublicKeyShareG2>>,
+    /// The combined public key.
     combined_pubkey: Arc<PublicKeyShareG2>,
     /// The persistent storage.
     store: Store,
@@ -41,12 +44,13 @@ pub struct Core {
     synchronizer: Synchronizer,
     /// Service to sign headers.
     signature_service: SignatureService,
+    /// BLS Service to sign headers.
     bls_signature_service: BlsSignatureService,
     /// The current consensus round (used for cleanup).
     consensus_round: Arc<AtomicU64>,
     /// The depth of the garbage collector.
     gc_depth: Round,
-
+    /// Sender to loopback messages to self (core)
     tx_primary: Sender<PrimaryMessage>,
     /// Receiver for dag messages (headers, timeouts, votes, certificates).
     rx_primaries: Receiver<PrimaryMessage>,
@@ -70,20 +74,15 @@ pub struct Core {
     tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
     /// Send a the header that has voted for the prev leader to the `Consensus` logic.
     tx_consensus_header_msg: Sender<ConsensusMessage>,
-
     /// The last garbage collected round.
     gc_round: Round,
     /// The authors of the last voted headers.
     last_voted: HashMap<Round, HashSet<PublicKey>>,
-    // /// The set of headers we are currently processing.
-    // processing: HashMap<Round, HashSet<Digest>>,
-    // /// The last header we proposed (for which we are waiting votes).
-    // current_header: Header,
-    // /// Aggregates votes into a certificate.
-    // votes_aggregator: VotesAggregator,
+    /// For storing info of processed certificates
     processed_certs: HashMap<Round, HashSet<PublicKey>>,
-    processing_headers: HashMap<Digest, Header>,
+    /// For storing info of header infos in processing
     processing_header_infos: HashMap<Digest, HeaderInfo>,
+    /// For storing info of vote aggregators in processing
     processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
     /// Aggregates certificates to use as parents for new headers.
     certificates_aggregators: HashMap<Round, Box<CertificatesAggregator>>,
@@ -95,7 +94,7 @@ pub struct Core {
     timeouts_aggregators: HashMap<Round, Box<TimeoutAggregator>>,
     /// Aggregates no vote messages to use for sending no vote certificates.
     no_vote_aggregators: HashMap<Round, HashMap<PublicKey, Box<NoVoteAggregator>>>,
-
+    /// Numbers of leader per round
     leaders_per_round: usize,
 }
 
@@ -155,7 +154,6 @@ impl Core {
                 gc_round: 0,
                 last_voted: HashMap::with_capacity(2 * gc_depth as usize),
                 processed_certs: HashMap::with_capacity(2 * gc_depth as usize),
-                processing_headers: HashMap::new(),
                 processing_header_infos: HashMap::new(),
                 processing_vote_aggregators: HashMap::new(),
                 certificates_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
@@ -306,7 +304,7 @@ impl Core {
                 .certificates_aggregators
                 .entry(certificate.round())
                 .or_insert_with(|| Box::new(CertificatesAggregator::new()))
-                .append(certificate.clone(), &self.committee, self.leaders_per_round)?
+                .append(&certificate, &self.committee, self.leaders_per_round)?
             {
                 // Send it to the `Proposer`.
                 self.tx_proposer
@@ -532,7 +530,7 @@ impl Core {
         // Add it to the votes' aggregator and try to make a new certificate.
         if let Some(vote_aggregator) = self.processing_vote_aggregators.get_mut(&vote.id) {
             // Add it to the votes' aggregator and try to make a new certificate.
-            if let Some(certificate) = vote_aggregator.append(vote, &self.committee, &self.clan)? {
+            if let Some(certificate) = vote_aggregator.append(&vote, &self.committee, &self.clan)? {
                 debug!("Assembled {:?}", certificate);
 
                 // Broadcast the certificate.
@@ -553,7 +551,7 @@ impl Core {
                 // Process the new certificate.
                 let committee = Arc::clone(&self.committee);
                 let sorted_keys = Arc::clone(&self.sorted_keys);
-                let tx_primary = tx_primary.clone();
+                let tx_primary = Arc::clone(&tx_primary);
                 let combined_key = Arc::clone(&self.combined_pubkey);
 
                 tokio::task::spawn_blocking(move || {
@@ -581,18 +579,6 @@ impl Core {
         //     "received cert for header {:?} round : {}",
         //     certificate.header_id, certificate.round
         // );
-        // Process the header embedded in the certificate if we haven't already voted for it (if we already
-        // voted, it means we already processed it). Since this header got certified, we are sure that all
-        // the data it refers to (ie. its payload and its parents) are available. We can thus continue the
-        // processing of the certificate even if we don't have them in store right now.
-
-        // NO NEED TO DO THIS BECAUSE WE HAVE REMOVED HEADER OBJECT FROM CERTIFICATE
-        // if !self.processing_headers
-        // .get(&certificate.header_id).is_some()
-        // {
-        //     // This function may still throw an error if the storage fails.
-        //     self.process_header(&certificate.header).await?;
-        // }
 
         // Ensure we have all the ancestors of this certificate yet. If we don't, the synchronizer will gather
         // them and trigger re-processing of this certificate.
@@ -613,7 +599,7 @@ impl Core {
             .certificates_aggregators
             .entry(certificate.round())
             .or_insert_with(|| Box::new(CertificatesAggregator::new()))
-            .append(certificate.clone(), &self.committee, self.leaders_per_round)?
+            .append(&certificate, &self.committee, self.leaders_per_round)?
         {
             // Send it to the `Proposer`.
             self.tx_proposer
@@ -750,7 +736,7 @@ impl Core {
 
     fn sanitize_certificate(
         &mut self,
-        certificate: Certificate,
+        certificate: &Certificate,
         tx_primary: &Arc<Sender<PrimaryMessage>>,
     ) -> DagResult<()> {
         ensure!(
@@ -818,7 +804,7 @@ impl Core {
                             }
                         },
                         PrimaryMessage::Certificate(certificate) => {
-                            let res = self.sanitize_certificate(certificate, &sender_channel);
+                            let res = self.sanitize_certificate(&certificate, &sender_channel);
                             res
                         },
                         PrimaryMessage::VerifiedCertificate(certificate) => {
@@ -861,7 +847,8 @@ impl Core {
                 let gc_round = round - self.gc_depth;
                 self.last_voted.retain(|k, _| k >= &gc_round);
                 self.processed_certs.retain(|k, _| k >= &gc_round);
-                self.processing_headers.retain(|_, h| &h.round >= &gc_round);
+                self.processing_header_infos
+                    .retain(|_, h| &h.round >= &gc_round);
                 self.certificates_aggregators.retain(|k, _| k >= &gc_round);
                 self.cancel_handlers.retain(|k, _| k >= &gc_round);
                 self.gc_round = gc_round;
