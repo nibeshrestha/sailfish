@@ -4,7 +4,6 @@ use crate::header_waiter::WaiterMessage;
 use crate::messages::{Certificate, Header};
 use crate::primary::HeaderType;
 use config::Committee;
-use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
 use store::Store;
 use tokio::sync::mpsc::Sender;

@@ -9,7 +9,6 @@ use config::{Comm, Committee, KeyPair, Parameters};
 use consensus::Consensus;
 use crypto::combine_keys;
 use env_logger::Env;
-use log::info;
 use primary::{Certificate, Primary};
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver};
@@ -109,7 +108,6 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
 
     // Read the committee and node's keypair from file.
     let ed_keypair = KeyPair::import(ed_key_file).context("Failed to load the node's keypair")?;
-    let name = ed_keypair.name;
     let bls_keypair =
         BlsKeyPair::import(bls_key_file).context("Failed to load the node's keypair")?;
 

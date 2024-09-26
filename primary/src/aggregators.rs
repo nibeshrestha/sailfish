@@ -4,7 +4,7 @@ use crate::messages::{Certificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, 
 use blsttc::{PublicKeyShareG2, SignatureShareG1};
 use config::{Clan, Committee, Stake};
 use crypto::{aggregate_sign, PublicKey, Signature};
-use log::{debug, info};
+use log::debug;
 use std::collections::HashSet;
 use std::sync::Arc;
 
