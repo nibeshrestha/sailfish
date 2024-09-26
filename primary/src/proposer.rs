@@ -1,6 +1,8 @@
 use crate::batch_maker::Transaction;
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::messages::{Certificate, Header, HeaderWithCertificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert};
+use crate::messages::{
+    Certificate, Header, HeaderWithCertificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert,
+};
 use crate::primary::Round;
 use config::Committee;
 use crypto::Hash as _;
@@ -175,7 +177,7 @@ impl Proposer {
             payload = self.txns.drain(..limit).collect();
         }
 
-        let parents : Vec<Certificate> = self.last_parents.drain(..).collect();
+        let parents: Vec<Certificate> = self.last_parents.drain(..).collect();
 
         let header = Header::new(
             self.name,
@@ -218,10 +220,7 @@ impl Proposer {
             // NOTE: This log entry is used to compute performance.
         }
 
-        let header_with_parents = HeaderWithCertificate {
-            header,
-            parents
-        };
+        let header_with_parents = HeaderWithCertificate { header, parents };
 
         // Send the new header to the `Core` that will broadcast and process it.
         self.tx_core

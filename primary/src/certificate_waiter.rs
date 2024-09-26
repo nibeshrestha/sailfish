@@ -1,9 +1,7 @@
-use std::collections::BTreeSet;
-
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
-use crate::messages::{Certificate, Header};
-use crate::primary::{HeaderMessage, HeaderType};
+use crate::messages::Certificate;
+use crate::primary::HeaderType;
 use futures::future::try_join_all;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;

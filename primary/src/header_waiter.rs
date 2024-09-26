@@ -1,6 +1,5 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
-use crate::messages::Header;
 use crate::primary::{HeaderMessage, HeaderType, PrimaryMessage, Round};
 use bytes::Bytes;
 use config::Committee;
@@ -10,7 +9,7 @@ use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
 use log::{debug, error};
 use network::SimpleSender;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -236,7 +235,7 @@ impl HeaderWaiter {
                                 id = header.id;
                                 parents = header.parents.clone();
                                 let _ = self.pending.remove(&id);
-                          
+
                                 for x in &parents {
                                     let _ = self.parent_requests.remove(&x);
                                 }
@@ -246,14 +245,14 @@ impl HeaderWaiter {
                                 id = header_info.id;
                                 parents = header_info.parents.clone();
                                 let _ = self.pending.remove(&id);
-                            
+
                                 for x in &parents {
                                     let _ = self.parent_requests.remove(&x);
                                 }
                                 self.tx_core.send(HeaderMessage::HeaderInfo(header_info)).await.expect("Failed to send header");
                             }
                         }
-                        
+
                     },
                     Ok(None) => {
                         // This request has been canceled.
