@@ -34,7 +34,7 @@ impl VotesAggregator {
 
     pub fn append(
         &mut self,
-        vote: Vote,
+        vote: &Vote,
         committee: &Committee,
         clan: &Clan,
     ) -> DagResult<Option<Certificate>> {
@@ -98,7 +98,7 @@ impl CertificatesAggregator {
 
     pub fn append(
         &mut self,
-        certificate: Certificate,
+        certificate: &Certificate,
         committee: &Committee,
         leaders_per_round: usize,
     ) -> DagResult<Option<Vec<Certificate>>> {

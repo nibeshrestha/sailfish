@@ -51,6 +51,11 @@ pub enum HeaderMessage {
     HeaderInfo(HeaderInfo)
 }
 
+pub enum ConsensusMessage {
+    HeaderInfo(HeaderInfo),
+    Certificate(Certificate),
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum HeaderType {
     Header(Header),
@@ -89,7 +94,7 @@ impl Primary {
         store: Store,
         tx_consensus: Sender<Certificate>,
         rx_consensus: Receiver<Certificate>,
-        tx_consensus_header_msg: Sender<HeaderMessage>,
+        tx_consensus_header_msg: Sender<ConsensusMessage>,
         leaders_per_round: usize,
     ) {
         // let (tx_others_digests, rx_others_digests) = channel(CHANNEL_CAPACITY);
@@ -112,7 +117,7 @@ impl Primary {
 
         // Parse the public and secret key of this authority.
         let name = keypair.name;
-        let name_bls = bls_keypair.nameg2;
+        let _name_bls = bls_keypair.nameg2;
         let secret = keypair.secret;
         let bls_secret = bls_keypair.secret;
 
@@ -184,7 +189,6 @@ impl Primary {
         // The `Core` receives and handles headers, votes, and certificates from the other primaries.
         Core::spawn(
             name,
-            name_bls,
             Arc::new(committee.clone()),
             Arc::new(clan.clone()),
             sorted_keys,
