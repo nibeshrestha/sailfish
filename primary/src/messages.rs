@@ -10,7 +10,7 @@ use crypto::{
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::convert::TryInto;
 use std::fmt;
 
@@ -75,7 +75,7 @@ impl Header {
         committee
             .authorities
             .keys()
-            .map(|name| Self { ..Self::default() })
+            .map(|_| Self { ..Self::default() })
             .collect()
     }
 }
@@ -521,7 +521,7 @@ impl Certificate {
         committee
             .authorities
             .keys()
-            .map(|name| Self { ..Self::default() })
+            .map(|_| Self { ..Self::default() })
             .collect()
     }
 
