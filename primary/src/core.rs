@@ -12,10 +12,10 @@ use crate::synchronizer::Synchronizer;
 use async_recursion::async_recursion;
 use blsttc::PublicKeyShareG2;
 use bytes::Bytes;
-use config::{Authority, Clan, Committee};
+use config::{Clan, Committee};
 use crypto::{BlsSignatureService, Hash as _};
 use crypto::{Digest, PublicKey, SignatureService};
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use network::{CancelHandler, ReliableSender};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -256,7 +256,7 @@ impl Core {
             .collect();
 
         let header_msg = HeaderMessage::HeaderWithCertificate(header_with_parents);
-        let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(header_msg.clone()))
+        let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(header_msg))
             .expect("Failed to serialize our own header");
 
         let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
@@ -273,7 +273,7 @@ impl Core {
 
         let header_info_msg: HeaderMessage =
             HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents);
-        let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(header_info_msg))
+        let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(header_info_msg.clone()))
             .expect("Failed to serialize our own header info");
 
         let addresses = self
@@ -293,7 +293,7 @@ impl Core {
             .extend(handlers);
 
         // Process the header.
-        self.process_header_msg(&header_msg, tx_primary).await
+        self.process_header_msg(&header_info_msg, tx_primary).await
     }
 
     async fn process_parent_certificates(
