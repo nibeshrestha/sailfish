@@ -72,7 +72,7 @@ impl Helper {
                                 .expect("Failed to serialize our own certificate");
                                 self.network.send(address, Bytes::from(bytes)).await;
                             } else {
-                                let header_info = HeaderInfo::create_from(header);
+                                let header_info = HeaderInfo::create_from(&header);
                                 let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(
                                     HeaderMessage::HeaderInfo(header_info),
                                 ))

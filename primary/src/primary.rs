@@ -55,9 +55,6 @@ pub enum HeaderMessage {
 }
 
 pub enum ConsensusMessage {
-    HeaderWithCertificate(HeaderWithCertificate),
-    HeaderInfoWithCertificate(HeaderInfoWithCertificate),
-    Header(Header),
     HeaderInfo(HeaderInfo),
     Certificate(Certificate),
 }
