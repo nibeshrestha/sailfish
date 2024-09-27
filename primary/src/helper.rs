@@ -1,5 +1,8 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::primary::PrimaryMessage;
+use crate::{
+    primary::{HeaderMessage, HeaderType, PrimaryMessage},
+    HeaderInfo,
+};
 use bytes::Bytes;
 use config::Committee;
 use crypto::{Digest, PublicKey};
@@ -56,11 +59,15 @@ impl Helper {
                 match self.store.read(digest.to_vec()).await {
                     Ok(Some(data)) => {
                         // TODO: Remove this deserialization-serialization in the critical path.
-                        let header = bincode::deserialize(&data)
-                            .expect("Failed to deserialize our own certificate");
-                        let bytes = bincode::serialize(&PrimaryMessage::Header(header))
+                        let header_msg = bincode::deserialize(&data).unwrap();
+
+                        if let HeaderType::HeaderInfo(header_info) = header_msg {
+                            let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(
+                                HeaderMessage::HeaderInfo(header_info),
+                            ))
                             .expect("Failed to serialize our own certificate");
-                        self.network.send(address, Bytes::from(bytes)).await;
+                            self.network.send(address, Bytes::from(bytes)).await;  
+                        }
                     }
                     Ok(None) => (),
                     Err(e) => error!("{}", e),

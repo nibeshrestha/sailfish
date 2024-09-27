@@ -1,11 +1,13 @@
+use std::collections::BTreeSet;
+
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::DagResult;
 use crate::header_waiter::WaiterMessage;
-use crate::messages::{Certificate, Header};
+use crate::messages::{Certificate, Header, HeaderInfo};
+use crate::primary::HeaderType;
+use crate::HeaderMessage;
 use config::Committee;
-use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
-use std::collections::HashMap;
 use store::Store;
 use tokio::sync::mpsc::Sender;
 
@@ -39,7 +41,7 @@ impl Synchronizer {
             tx_certificate_waiter,
             genesis: Header::genesis(committee)
                 .into_iter()
-                .map(|x| (x.id.clone(), x))
+                .map(|x| (x.id, x))
                 .collect(),
         }
     }
@@ -84,23 +86,38 @@ impl Synchronizer {
     /// Returns the parents of a header if we have them all. If at least one parent is missing,
     /// we return an empty vector, synchronize with other nodes, and re-schedule processing
     /// of the header for when we will have all the parents.
-    pub async fn get_parents(&mut self, header: &Header) -> DagResult<Vec<Header>> {
+    pub async fn get_parents(&mut self, header_msg: &HeaderType) -> DagResult<Vec<HeaderType>> {
+        let h_parents: Vec<_>;
+        match header_msg {
+            HeaderType::Header(header) => {
+                h_parents = header.parents.clone();
+            }
+            HeaderType::HeaderInfo(header_info) => {
+                h_parents = header_info.parents.clone();
+            }
+        }
+
         let mut missing = Vec::new();
         let mut parents = Vec::new();
-        for digest in &header.parents {
+
+        for parent in &h_parents {
             if let Some(genesis) = self
                 .genesis
                 .iter()
-                .find(|(x, _)| x == digest)
+                .find(|(x, _)| x == parent)
                 .map(|(_, x)| x)
             {
-                parents.push(genesis.clone());
+                let genesis_header_msg = HeaderType::Header(genesis.clone());
+                parents.push(genesis_header_msg);
                 continue;
             }
 
-            match self.store.read(digest.to_vec()).await? {
-                Some(h) => parents.push(bincode::deserialize(&h)?),
-                None => missing.push(digest.clone()),
+            match self.store.read(parent.to_vec()).await? {
+                Some(h) => {
+                    let header_msg: HeaderType = bincode::deserialize(&h).unwrap();
+                    parents.push(header_msg)
+                }
+                None => missing.push(parent.clone()),
             };
         }
 
@@ -109,7 +126,7 @@ impl Synchronizer {
         }
 
         self.tx_header_waiter
-            .send(WaiterMessage::SyncParents(missing, header.clone()))
+            .send(WaiterMessage::SyncParents(missing, header_msg.clone()))
             .await
             .expect("Failed to send sync parents request");
         Ok(Vec::new())
@@ -121,14 +138,23 @@ impl Synchronizer {
         let key = certificate.header_id.to_vec();
 
         if let Some(head) = self.store.read(key).await.unwrap() {
-            let header = Header::from(bincode::deserialize(&head).unwrap());
+            let parents: Vec<_>;
+            let header_msg: HeaderType = bincode::deserialize(&head).unwrap();
+            match header_msg {
+                HeaderType::Header(header) => {
+                    parents = header.parents;
+                }
+                HeaderType::HeaderInfo(header_info) => {
+                    parents = header_info.parents;
+                }
+            }
 
-            for digest in &header.parents {
-                if self.genesis.iter().any(|(x, _)| x == digest) {
+            for cert in &parents {
+                if self.genesis.iter().any(|(x, _)| x == cert) {
                     continue;
                 }
 
-                if self.store.read(digest.to_vec()).await?.is_none() {
+                if self.store.read(cert.to_vec()).await?.is_none() {
                     self.tx_certificate_waiter
                         .send(certificate.clone())
                         .await
@@ -136,6 +162,7 @@ impl Synchronizer {
                     return Ok(false);
                 };
             }
+
             Ok(true)
         } else {
             self.tx_certificate_waiter

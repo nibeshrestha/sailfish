@@ -4,7 +4,7 @@ use clap::{crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
 use config::BlsKeyPair;
 use config::Export as _;
 use config::Import as _;
-use config::{Committee, KeyPair, Parameters, WorkerId};
+use config::{Committee, KeyPair, Parameters, WorkerId, Comm};
 use consensus::Consensus;
 use crypto::combine_keys;
 use env_logger::Env;
@@ -105,8 +105,9 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
     let ed_keypair = KeyPair::import(ed_key_file).context("Failed to load the node's keypair")?;
     let bls_keypair =
         BlsKeyPair::import(bls_key_file).context("Failed to load the node's keypair")?;
-    let committee =
-        Committee::import(committee_file).context("Failed to load the committee information")?;
+    //fetching committee
+    let comm = Comm::import(committee_file).context("Failed to load the committee information")?;
+    let committee = Committee::new(comm.authorities);
 
     let mut sorted_keys = committee.get_bls_public_keys();
     sorted_keys.sort();
@@ -135,7 +136,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
         ("primary", _) => {
             let (tx_new_certificates, rx_new_certificates) = channel(CHANNEL_CAPACITY);
             let (tx_feedback, rx_feedback) = channel(CHANNEL_CAPACITY);
-            let (tx_consensus_header, rx_consensus_header) = channel(CHANNEL_CAPACITY);
+            let (tx_consensus_header_msg, rx_consensus_header_msg) = channel(CHANNEL_CAPACITY);
             Primary::spawn(
                 ed_keypair,
                 bls_keypair,
@@ -146,27 +147,17 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
                 store.clone(),
                 /* tx_consensus */ tx_new_certificates,
                 /* rx_consensus */ rx_feedback,
-                tx_consensus_header,
+                tx_consensus_header_msg,
             );
             Consensus::spawn(
                 committee,
                 parameters.gc_depth,
                 /* rx_primary */ rx_new_certificates,
-                rx_consensus_header,
+                rx_consensus_header_msg,
                 /* tx_primary */ tx_feedback,
                 tx_output,
             );
         }
-
-        // // Spawn a single worker.
-        // ("worker", Some(sub_matches)) => {
-        //     let id = sub_matches
-        //         .value_of("id")
-        //         .unwrap()
-        //         .parse::<WorkerId>()
-        //         .context("The worker id must be a positive integer")?;
-        //     Worker::spawn(ed_keypair.name, id, committee, parameters, store);
-        // }
         _ => unreachable!(),
     }
 

@@ -3,7 +3,7 @@ use config::{Committee, Stake};
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
 use log::{debug, info, log_enabled, warn};
-use primary::{Certificate, Header, Round};
+use primary::{Certificate, ConsensusMessage, Header, Round};
 use std::cmp::max;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -14,7 +14,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 /// The representation of the DAG in memory.
 type Dag = HashMap<Round, HashMap<PublicKey, (Digest, Certificate)>>;
-type ParentInfo = HashMap<Digest, BTreeSet<Digest>>;
+type ParentInfo = HashMap<Digest, Vec<Digest>>;
 
 /// The state that needs to be persisted for crash-recovery.
 struct State {
@@ -74,7 +74,7 @@ pub struct Consensus {
     /// if it already sent us its whole history.
     rx_primary: Receiver<Certificate>,
     /// Receives new headers from the primary.
-    rx_primary_header: Receiver<Header>,
+    rx_primary_header_msg: Receiver<ConsensusMessage>,
     /// Outputs the sequence of ordered certificates to the primary (for cleanup and feedback).
     tx_primary: Sender<Certificate>,
     /// Outputs the sequence of ordered certificates to the application layer.
@@ -91,7 +91,7 @@ impl Consensus {
         committee: Committee,
         gc_depth: Round,
         rx_primary: Receiver<Certificate>,
-        rx_primary_header: Receiver<Header>,
+        rx_primary_header_msg: Receiver<ConsensusMessage>,
         tx_primary: Sender<Certificate>,
         tx_output: Sender<Certificate>,
     ) {
@@ -100,7 +100,7 @@ impl Consensus {
                 committee: committee.clone(),
                 gc_depth,
                 rx_primary,
-                rx_primary_header,
+                rx_primary_header_msg,
                 tx_primary,
                 tx_output,
                 genesis: Certificate::genesis(&committee),
@@ -117,71 +117,93 @@ impl Consensus {
         // Listen to incoming certificates and header quorums.
         loop {
             tokio::select! {
-                // Listen to incoming headers.
-                Some(header) = self.rx_primary_header.recv() => {
-                    debug!("Processing {:?}", header);
-
-                    state.parent_info.insert(header.id.clone(), header.parents.clone());
-                    // Try to order the dag to commit. Start from the previous round.
-                    let r = header.round - 1;
-
-                    // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
-                    let leader_round = r;
-                    if leader_round <= state.last_committed_round {
-                        continue;
-                    }
-                    let (leader_digest, leader) = match self.leader(leader_round, &state.dag) {
-                        Some(x) => x,
-                        None => continue,
-                    };
-
-                    if header.parents.contains(leader_digest) {
-                        *self.stake_vote.entry(header.round).or_insert(0) += self.committee.stake(&header.author);
-                    }
-
-                    let current_stake = self.stake_vote.get(&header.round);
-                    let current_stake_value = *current_stake.unwrap_or(&0);
-
-                    // Commit if we have QT
-                    if current_stake_value >= self.committee.quorum_threshold() {
-                        // Get an ordered list of past leaders that are linked to the current leader.
-                        debug!("Leader {:?} has enough support with header", leader);
-                        let mut sequence = Vec::new();
-                        for leader in self.order_leaders(leader, &state).iter().rev() {
-                            // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
-                            for x in self.order_dag(leader, &state) {
-                                // Update and clean up internal state.
-                                state.update(&x, self.gc_depth);
-
-                                // Add the certificate to the sequence.
-                                sequence.push(x);
-                            }
+                // // Listen to incoming headers.
+                Some(header_msg) = self.rx_primary_header_msg.recv() => {
+                    
+                    match header_msg {
+                        ConsensusMessage::Certificate(certificate) => {
+                            let round = certificate.round();
+                            state
+                                .dag
+                                .entry(round)
+                                .or_insert_with(HashMap::new)
+                                .insert(certificate.origin(), (certificate.header_id.clone(), certificate.clone()));
+                            continue;
                         }
-
-                        // Output the sequence in the right order.
-                        for certificate in sequence {
-                            // #[cfg(not(feature = "benchmark"))]
-                            // info!("Committed {} with header", certificate.header);
-
-                            if certificate.round == leader_round {
-                                info!("Committed {:?} Leader", certificate.header_id);
-                            }else if certificate.round == leader_round-1 {
-                                info!("Committed {:?} NonLeader", certificate.header_id);
-                            } else{
-                                info!("Committed {:?} ", certificate.header_id);
+                        
+                        ConsensusMessage::HeaderInfo(header_info) => {
+                            debug!("Processing {:?}", header_info);
+    
+                            state.parent_info.insert(header_info.id, header_info.parents.clone());
+                            // Try to order the dag to commit. Start from the previous round.
+                            let r = header_info.round - 1;
+    
+                            // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
+                            let leader_round = r;
+                            if leader_round <= state.last_committed_round {
+                                continue;
                             }
-
-                            self.tx_primary
-                                .send(certificate.clone())
-                                .await
-                                .expect("Failed to send certificate to primary with header");
-
-                            if let Err(e) = self.tx_output.send(certificate).await {
-                                warn!("Failed to output certificate: {} with header", e);
+    
+                            let (leader_digest, leader) = match self.leader(leader_round, &state.dag) {
+                                Some(x) => x,
+                                None => continue,
+                            };
+    
+                            if header_info.parents.contains(leader_digest) {
+                                *self.stake_vote.entry(header_info.round).or_insert(0) += self.committee.stake(&header_info.author);
+                            }
+    
+                            let current_stake = self.stake_vote.get(&header_info.round);
+                            let current_stake_value = *current_stake.unwrap_or(&0);
+    
+                            // Commit if we have QT
+                            if current_stake_value >= self.committee.quorum_threshold() {
+                                // Get an ordered list of past leaders that are linked to the current leader.
+                                debug!("Leader {:?} has enough support with header", leader);
+                                let mut sequence = Vec::new();
+                                for leader in self.order_leaders(leader, &state).iter().rev() {
+                                    // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
+                                    for x in self.order_dag(leader, &state) {
+                                        // Update and clean up internal state.
+                                        state.update(&x, self.gc_depth);
+    
+                                        // Add the certificate to the sequence.
+                                        sequence.push(x);
+                                    }
+                                }
+                                
+    
+                                // Output the sequence in the right order.
+                                for certificate in sequence {
+                                    // #[cfg(not(feature = "benchmark"))]
+                                    // info!("Committed {} with header", certificate.header);
+    
+                                    if certificate.round == leader_round {
+                                        info!("Committed {:?} Leader", certificate.header_id);
+                                    }else if certificate.round == leader_round-1 {
+                                        info!("Committed {:?} NonLeader", certificate.header_id);
+                                    } else{
+                                        info!("Committed {:?} ", certificate.header_id);
+                                    }
+    
+                                    self.tx_primary
+                                        .send(certificate.clone())
+                                        .await
+                                        .expect("Failed to send certificate to primary with header");
+    
+                                    if let Err(e) = self.tx_output.send(certificate).await {
+                                        warn!("Failed to output certificate: {} with header", e);
+                                    }
+                                } 
+                            
+                            }else{
+                                // Skip committing rest of the leaders as the current leader is not committed.
+                                break;
                             }
                         }
                     }
                 }
+                
                 // Listen to incoming certificates.
                 Some(certificate) = self.rx_primary.recv() => {
                     debug!("Processing {:?}", certificate);
@@ -194,89 +216,92 @@ impl Consensus {
                         .or_insert_with(HashMap::new)
                         .insert(certificate.origin(), (certificate.header_id.clone(), certificate));
 
-                    // Try to order the dag to commit. Start from the previous round and check if it is a leader round.
-                    let r = round - 1;
+                    // // Try to order the dag to commit. Start from the previous round and check if it is a leader round.
+                    // let r = round - 1;
 
-                    // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
-                    let leader_round = r;
+                    // // Get the certificate's digest of the leader. If we already ordered this leader, there is nothing to do.
+                    // let leader_round = r;
                     
-                    if leader_round <= state.last_committed_round {
-                        continue;
-                    }
+                    // if leader_round <= state.last_committed_round {
+                    //     continue;
+                    // }
 
-                    let (leader_digest, leader) = match self.leader(leader_round, &state.dag) {
-                        Some(x) => x,
-                        None => continue,
-                    };
+                    // let (leader_digest, leader) = match self.leader(leader_round, &state.dag) {
+                    //     Some(x) => x,
+                    //     None => continue,
+                    // };
 
-                    // Check if the leader has 2f+1 support from its children (ie. round r-1).
+                    // // Check if the leader has 2f+1 support from its children (ie. round r-1).
 
-                    let stake: Stake = state
-                        .dag
-                        .get(&round)
-                        .expect("We should have the whole history by now")
-                        .values()
-                        .filter(|(_, x)| { let parents = state.parent_info.get(&x.header_id).unwrap();
-                                parents.contains(leader_digest)
-                            })
-                        .map(|(_, x)| self.committee.stake(&x.origin()))
-                        .sum();
+                    // let stake: Stake = state
+                    //     .dag
+                    //     .get(&round)
+                    //     .expect("We should have the whole history by now")
+                    //     .values()
+                    //     .filter(|(_, x)| { let parents = state.parent_info.get(&x.header_id).unwrap();
+                    //             parents.contains(leader_digest)
+                    //         })
+                    //     .map(|(_, x)| self.committee.stake(&x.origin()))
+                    //     .sum();
 
-                    // If it is the case, we can commit the leader. But first, we need to recursively go back to
-                    // the last committed leader, and commit all preceding leaders in the right order. Committing
-                    // a leader block means committing all its dependencies.
-                    if stake < self.committee.quorum_threshold() {
-                        debug!("Leader {:?} does not have enough support", leader);
-                        continue;
-                    }
+                    // // If it is the case, we can commit the leader. But first, we need to recursively go back to
+                    // // the last committed leader, and commit all preceding leaders in the right order. Committing
+                    // // a leader block means committing all its dependencies.
+                    // if stake < self.committee.quorum_threshold() {
+                    //     debug!("Leader {:?} does not have enough support", leader);
+                    //     continue;
+                    // }
 
-                    // Get an ordered list of past leaders that are linked to the current leader.
-                    debug!("Leader {:?} has enough support", leader);
-                    let mut sequence = Vec::new();
-                    for leader in self.order_leaders(leader, &state).iter().rev() {
-                        // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
-                        for x in self.order_dag(leader, &state) {
-                            // Update and clean up internal state.
-                            state.update(&x, self.gc_depth);
+                    // // Get an ordered list of past leaders that are linked to the current leader.
+                    // debug!("Leader {:?} has enough support", leader);
+                    // let mut sequence = Vec::new();
+                    // for leader in self.order_leaders(leader, &state).iter().rev() {
+                    //     // Starting from the oldest leader, flatten the sub-dag referenced by the leader.
+                    //     for x in self.order_dag(leader, &state) {
+                    //         // Update and clean up internal state.
+                    //         state.update(&x, self.gc_depth);
 
-                            // Add the certificate to the sequence.
-                            sequence.push(x);
-                        }
-                    }
+                    //         // Add the certificate to the sequence.
+                    //         sequence.push(x);
+                    //     }
+                    // }
 
-                    // Log the latest committed round of every authority (for debug).
-                    if log_enabled!(log::Level::Debug) {
-                        for (name, round) in &state.last_committed {
-                            debug!("Latest commit of {}: Round {}", name, round);
-                        }
-                    }
+                    // // Log the latest committed round of every authority (for debug).
+                    // if log_enabled!(log::Level::Debug) {
+                    //     for (name, round) in &state.last_committed {
+                    //         debug!("Latest commit of {}: Round {}", name, round);
+                    //     }
+                    // }
 
-                    // Output the sequence in the right order.
-                    for certificate in sequence {
+                    // // Output the sequence in the right order.
+                    // for certificate in sequence {
 
-                        // #[cfg(not(feature = "benchmark"))]
+                    //     // #[cfg(not(feature = "benchmark"))]
 
-                        if certificate.round == leader_round {
-                            info!("Committed {:?} Leader", certificate.header_id);
-                        }else if certificate.round == leader_round-1 {
-                            info!("Committed {:?} NonLeader", certificate.header_id);
-                        }else{
-                            info!("Committed {:?} ", certificate.header_id);
-                        }
+                    //     if certificate.round == leader_round {
+                    //         info!("Committed {:?} Leader", certificate.header_id);
+                    //     }else if certificate.round == leader_round-1 {
+                    //         info!("Committed {:?} NonLeader", certificate.header_id);
+                    //     }else{
+                    //         info!("Committed {:?} ", certificate.header_id);
+                    //     }
 
-                        self.tx_primary
-                            .send(certificate.clone())
-                            .await
-                            .expect("Failed to send certificate to primary");
+                    //     self.tx_primary
+                    //         .send(certificate.clone())
+                    //         .await
+                    //         .expect("Failed to send certificate to primary");
 
-                        if let Err(e) = self.tx_output.send(certificate).await {
-                            warn!("Failed to output certificate: {}", e);
-                        }
-                    }
+                    //     if let Err(e) = self.tx_output.send(certificate).await {
+                    //         warn!("Failed to output certificate: {}", e);
+                    //     }
+                    // }
                 }
+                
             }
         }
     }
+
+
 
     /// Returns the certificate (and the certificate's digest) originated by the leader of the
     /// specified round (if any).

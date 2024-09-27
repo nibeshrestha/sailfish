@@ -116,6 +116,7 @@ impl Parameters {
         info!("Sync retry nodes set to {} nodes", self.sync_retry_nodes);
         info!("Batch size set to {} B", self.batch_size);
         info!("Max batch delay set to {} ms", self.max_batch_delay);
+        info!("Transaction size set to {} B", self.tx_size);
     }
 }
 
@@ -149,13 +150,31 @@ pub struct Authority {
 }
 
 #[derive(Clone, Deserialize)]
+pub struct Comm {
+    pub authorities: BTreeMap<PublicKey, Authority>,
+}
+
+impl Import for Comm {}
+
+#[derive(Clone, Deserialize)]
 pub struct Committee {
     pub authorities: BTreeMap<PublicKey, Authority>,
+    pub sorted_keys: Vec<PublicKey>,
 }
 
 impl Import for Committee {}
 
 impl Committee {
+
+    pub fn new(authorities: BTreeMap<PublicKey, Authority>) -> Committee {
+        let mut keys: Vec<_> = authorities.keys().cloned().collect();
+        keys.sort();
+        let committee = Self {
+            authorities,
+            sorted_keys: keys,
+        };
+        committee
+    }
     /// Returns the number of authorities.
     pub fn size(&self) -> usize {
         self.authorities.len()

@@ -1,6 +1,7 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::messages::{Certificate, Header};
+use crate::primary::{HeaderMessage, HeaderType};
 use futures::future::try_join_all;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
@@ -64,8 +65,18 @@ impl CertificateWaiter {
                     let key = certificate.header_id.to_vec();
 
                     if let Some(res) = self.store.read(key.clone()).await.unwrap() {
-                        let header = Header::from(bincode::deserialize(&res).unwrap());
-                        let wait_for = header.parents
+                        let header_msg = bincode::deserialize(&res).unwrap();
+
+                        let parents: Vec<_>;
+                        match header_msg {
+                            HeaderType::Header(header) => {
+                                parents = header.parents;
+                            }
+                            HeaderType::HeaderInfo(header_info) => {
+                                parents = header_info.parents;
+                            }
+                        }
+                        let wait_for = parents
                         .iter()
                         .cloned()
                         .map(|x| (x.to_vec(), self.store.clone()))

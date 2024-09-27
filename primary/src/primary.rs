@@ -5,7 +5,7 @@ use crate::error::DagError;
 use crate::garbage_collector::GarbageCollector;
 use crate::header_waiter::HeaderWaiter;
 use crate::helper::Helper;
-use crate::messages::{Certificate, Header, NoVoteMsg, Timeout, Vote};
+use crate::messages::{Certificate, Header, HeaderInfo, HeaderInfoWithCertificate, HeaderWithCertificate, NoVoteMsg, Timeout, Vote};
 use crate::proposer::Proposer;
 use crate::synchronizer::Synchronizer;
 use crate::worker::Worker;
@@ -32,7 +32,7 @@ pub type Round = u64;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum PrimaryMessage {
-    Header(Header),
+    HeaderMsg(HeaderMessage),
     Timeout(Timeout),
     NoVoteMsg(NoVoteMsg),
     Vote(Vote),
@@ -40,6 +40,25 @@ pub enum PrimaryMessage {
     VerifiedCertificate(Certificate),
     CertificatesRequest(Vec<Digest>, /* requestor */ PublicKey),
     PayloadRequest(Digest, PublicKey),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum HeaderMessage {
+    HeaderWithCertificate(HeaderWithCertificate),
+    HeaderInfoWithCertificate(HeaderInfoWithCertificate),
+    Header(Header),
+    HeaderInfo(HeaderInfo),
+}
+
+pub enum ConsensusMessage {
+    HeaderInfo(HeaderInfo),
+    Certificate(Certificate),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum HeaderType {
+    Header(Header),
+    HeaderInfo(HeaderInfo),
 }
 
 /// The messages sent by the primary to its workers.
@@ -73,7 +92,7 @@ impl Primary {
         store: Store,
         tx_consensus: Sender<Certificate>,
         rx_consensus: Receiver<Certificate>,
-        tx_consensus_header: Sender<Header>,
+        tx_consensus_header_msg: Sender<ConsensusMessage>,
     ) {
         // let (tx_others_digests, rx_others_digests) = channel(CHANNEL_CAPACITY);
         let (tx_our_digests, rx_our_digests) = channel(CHANNEL_CAPACITY);
@@ -95,7 +114,7 @@ impl Primary {
 
         // Parse the public and secret key of this authority.
         let name = keypair.name;
-        let name_bls = bls_keypair.nameg2;
+        let _name_bls = bls_keypair.nameg2;
         let secret = keypair.secret;
         let bls_secret = bls_keypair.secret;
 
@@ -166,7 +185,6 @@ impl Primary {
         // The `Core` receives and handles headers, votes, and certificates from the other primaries.
         Core::spawn(
             name,
-            name_bls,
             Arc::new(committee.clone()),
             sorted_keys,
             Arc::new(combined_pubkey),
@@ -187,7 +205,7 @@ impl Primary {
             /* tx_proposer */ tx_parents,
             tx_timeout_cert,
             tx_no_vote_cert,
-            tx_consensus_header,
+            tx_consensus_header_msg,
         );
 
         // Keeps track of the latest consensus round and allows other tasks to clean up their their internal state
