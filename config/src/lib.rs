@@ -163,7 +163,6 @@ pub struct Comm {
 
 impl Import for Comm {}
 
-
 #[derive(Clone, Deserialize)]
 pub struct Committee {
     pub authorities: BTreeMap<PublicKey, Authority>,
@@ -173,7 +172,6 @@ pub struct Committee {
 impl Import for Committee {}
 
 impl Committee {
-
     pub fn new(authorities: BTreeMap<PublicKey, Authority>) -> Committee {
         let mut keys: Vec<_> = authorities.keys().cloned().collect();
         keys.sort();
@@ -226,7 +224,6 @@ impl Committee {
     }
 
     pub fn sub_leaders(&self, seed: usize, num_leaders: usize) -> Vec<PublicKey> {
-
         // Find the index of the seed in the sorted keys vector
         let seed_index = seed % self.size();
 
@@ -241,7 +238,6 @@ impl Committee {
     }
 
     pub fn leader_list(&self, leaders_per_round: usize, seed: usize) -> Vec<PublicKey> {
- 
         let mut leaders: Vec<PublicKey> = Vec::new();
         for i in 0..leaders_per_round {
             leaders.push(self.sorted_keys[(seed + i) % self.size()]);

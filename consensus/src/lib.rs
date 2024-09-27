@@ -136,7 +136,7 @@ impl Consensus {
                                 .insert(certificate.origin(), (certificate.header_id.clone(), certificate.clone()));
                             continue;
                         }
-                        
+
                         ConsensusMessage::HeaderInfo(header_info) => {
                             debug!("Processing header info {:?}", header_info);
 
@@ -315,7 +315,7 @@ impl Consensus {
                     //             warn!("Failed to output certificate: {}", e);
                     //         }
                     //    }
-                    
+
                 }
             }
         }

@@ -4,9 +4,10 @@ use crate::aggregators::{
 };
 use crate::error::{DagError, DagResult};
 use crate::messages::{
-    Certificate, Header, HeaderInfo, HeaderWithCertificate, HeaderInfoWithCertificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, Vote,
+    Certificate, Header, HeaderInfo, HeaderInfoWithCertificate, HeaderWithCertificate, NoVoteCert,
+    NoVoteMsg, Timeout, TimeoutCert, Vote,
 };
-use crate::primary::{HeaderMessage, ConsensusMessage, HeaderType,PrimaryMessage, Round};
+use crate::primary::{ConsensusMessage, HeaderMessage, HeaderType, PrimaryMessage, Round};
 use crate::synchronizer::Synchronizer;
 use async_recursion::async_recursion;
 use blsttc::PublicKeyShareG2;
@@ -269,7 +270,8 @@ impl Core {
             parents,
         };
 
-        let header_info_msg: HeaderMessage = HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents);
+        let header_info_msg: HeaderMessage =
+            HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents);
         let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(header_info_msg.clone()))
             .expect("Failed to serialize our own header info");
 
@@ -337,7 +339,6 @@ impl Core {
         header_msg: &HeaderMessage,
         tx_primary: &Arc<Sender<PrimaryMessage>>,
     ) -> DagResult<()> {
-
         debug!("Processing {:?}", header_msg);
         let header_info: HeaderInfo;
 
@@ -362,16 +363,15 @@ impl Core {
 
         // Indicate that we are processing this header.
         self.processing_header_infos
-        .entry(header_info.id)
-        .or_insert(header_info.clone());
+            .entry(header_info.id)
+            .or_insert(header_info.clone());
         self.processing_vote_aggregators
             .entry(header_info.id)
             .or_insert(VotesAggregator::new(
                 self.sorted_keys.clone(),
                 self.committee.size(),
             ));
-            
-            
+
         // Check if we can vote for this header.
         if self
             .last_voted
@@ -380,8 +380,12 @@ impl Core {
             .insert(header_info.author)
         {
             // Make a vote and send it to all nodes
-            let vote =
-                Vote::new_for_header_info(&header_info, &self.name, &mut self.bls_signature_service).await;
+            let vote = Vote::new_for_header_info(
+                &header_info,
+                &self.name,
+                &mut self.bls_signature_service,
+            )
+            .await;
             // debug!("Created {:?}", vote);
 
             let addresses = self
@@ -413,7 +417,10 @@ impl Core {
                 .get_parents(&HeaderType::HeaderInfo(header_info.clone()))
                 .await?;
             if parents.is_empty() {
-                debug!("Processing of {} suspended: missing parent(s)", header_info.id);
+                debug!(
+                    "Processing of {} suspended: missing parent(s)",
+                    header_info.id
+                );
                 return Ok(());
             }
         }
@@ -429,9 +436,8 @@ impl Core {
         let header_type = HeaderType::HeaderInfo(header_info);
         let bytes = bincode::serialize(&header_type).expect("Failed to serialize header");
         self.store.write(hid.to_vec(), bytes).await;
-    
+
         Ok(())
-                
     }
 
     #[async_recursion]
@@ -570,7 +576,6 @@ impl Core {
     async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
         debug!("Processing {:?}", certificate);
 
-
         // Ensure we have all the ancestors of this certificate yet. If we don't, the synchronizer will gather
         // them and trigger re-processing of this certificate.
         if !self.synchronizer.deliver_certificate(&certificate).await? {
@@ -621,8 +626,7 @@ impl Core {
     fn sanitize_header_msg(&mut self, header_msg: &HeaderMessage) -> DagResult<()> {
         match header_msg {
             HeaderMessage::HeaderWithCertificate(header_with_parents) => {
-                
-                let  header = &header_with_parents.header;
+                let header = &header_with_parents.header;
                 ensure!(
                     self.gc_round <= header.round,
                     DagError::TooOld(header.id, header.round)
@@ -632,8 +636,7 @@ impl Core {
                 Ok(())
             }
             HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
-                
-                let  header_info = &header_info_with_parents.header_info;
+                let header_info = &header_info_with_parents.header_info;
                 ensure!(
                     self.gc_round <= header_info.round,
                     DagError::TooOld(header_info.id, header_info.round)
@@ -664,7 +667,6 @@ impl Core {
                 Ok(())
             }
         }
-        
 
         // TODO [issue #3]: Prevent bad nodes from sending junk headers with high round numbers.
     }
@@ -694,7 +696,7 @@ impl Core {
     }
 
     fn sanitize_vote(&mut self, vote: &Vote) -> DagResult<()> {
-       if let Some(header_info) = self.processing_header_infos.get(&vote.id) {
+        if let Some(header_info) = self.processing_header_infos.get(&vote.id) {
             ensure!(
                 header_info.round <= vote.round,
                 DagError::TooOld(vote.digest(), vote.round)
@@ -745,7 +747,6 @@ impl Core {
 
         Ok(())
     }
-
 
     // Main loop listening to incoming messages.
     pub async fn run(&mut self) {
