@@ -2,6 +2,7 @@
 use anyhow::{Context, Result};
 use clap::{crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
 use config::BlsKeyPair;
+use config::Comm;
 use config::Export as _;
 use config::Import as _;
 use config::{Committee, KeyPair, Parameters};
@@ -104,8 +105,10 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
     let ed_keypair = KeyPair::import(ed_key_file).context("Failed to load the node's keypair")?;
     let bls_keypair =
         BlsKeyPair::import(bls_key_file).context("Failed to load the node's keypair")?;
-    let committee =
-        Committee::import(committee_file).context("Failed to load the committee information")?;
+
+    let comm = Comm::import(committee_file).context("Failed to load the committee information")?;
+
+    let committee = Committee::new(comm.authorities);
 
     let mut sorted_keys = committee.get_bls_public_keys();
     sorted_keys.sort();

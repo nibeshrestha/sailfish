@@ -10,7 +10,7 @@ use crypto::{
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::convert::TryInto;
 use std::fmt;
 
@@ -19,7 +19,7 @@ pub struct Header {
     pub author: PublicKey,
     pub round: Round,
     pub payload: Vec<Transaction>,
-    pub parents: BTreeSet<Digest>,
+    pub parents: Vec<Digest>,
     pub id: Digest,
     pub signature: Signature,
     pub timeout_cert: TimeoutCert,
@@ -31,7 +31,7 @@ impl Header {
         author: PublicKey,
         round: Round,
         payload: Vec<Transaction>,
-        parents: BTreeSet<Digest>,
+        parents: Vec<Digest>,
         timeout_cert: TimeoutCert,
         no_vote_certs: Vec<NoVoteCert>,
         signature_service: &mut SignatureService,
@@ -75,7 +75,7 @@ impl Header {
         committee
             .authorities
             .keys()
-            .map(|name| Self { ..Self::default() })
+            .map(|_| Self { ..Self::default() })
             .collect()
     }
 }
@@ -88,9 +88,9 @@ impl Hash for Header {
         for x in &self.payload {
             hasher.update(x);
         }
-        for x in &self.parents {
-            hasher.update(x);
-        }
+        // for x in &self.parents {
+        //     hasher.update(x);
+        // }
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }
@@ -102,6 +102,102 @@ impl fmt::Debug for Header {
 }
 
 impl fmt::Display for Header {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "B{}({})", self.round, self.author)
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct HeaderWithCertificate {
+    pub header: Header,
+    pub parents: Vec<Certificate>,
+}
+impl fmt::Debug for HeaderWithCertificate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}: B{}({})",
+            self.header.id, self.header.round, self.header.author,
+        )
+    }
+}
+impl fmt::Display for HeaderWithCertificate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "B{}({})", self.header.round, self.header.author)
+    }
+}
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct HeaderInfoWithCertificate {
+    pub header_info: HeaderInfo,
+    pub parents: Vec<Certificate>,
+}
+impl fmt::Debug for HeaderInfoWithCertificate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}: B{}({})",
+            self.header_info.id, self.header_info.round, self.header_info.author,
+        )
+    }
+}
+impl fmt::Display for HeaderInfoWithCertificate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "B{}({})",
+            self.header_info.round, self.header_info.author
+        )
+    }
+}
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct HeaderInfo {
+    pub author: PublicKey,
+    pub round: Round,
+    pub payload: Digest,
+    pub parents: Vec<Digest>,
+    pub id: Digest,
+    pub signature: Signature,
+    pub timeout_cert: TimeoutCert,
+    no_vote_certs: Vec<NoVoteCert>,
+}
+impl HeaderInfo {
+    pub fn create_from(header: &Header) -> Self {
+        let header_info = Self {
+            author: header.author,
+            round: header.round,
+            payload: payload_digest(&header),
+            parents: header.parents.clone(),
+            id: header.id,
+            signature: header.signature.clone(),
+            timeout_cert: header.timeout_cert.clone(),
+            no_vote_certs: header.no_vote_certs.clone(),
+        };
+        header_info
+    }
+    pub fn verify(&self, committee: &Committee) -> DagResult<()> {
+        // Ensure the authority has voting rights.
+        let voting_rights = committee.stake(&self.author);
+        ensure!(voting_rights > 0, DagError::UnknownAuthority(self.author));
+        // Check the signature.
+        self.signature
+            .verify(&self.id, &self.author)
+            .map_err(DagError::from)
+        // Check if pointer to prev leader exists
+    }
+}
+fn payload_digest(header: &Header) -> Digest {
+    let mut hasher = Sha512::new();
+    for x in &header.payload {
+        hasher.update(x);
+    }
+    Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
+}
+impl fmt::Debug for HeaderInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}: B{}({})", self.id, self.round, self.author,)
+    }
+}
+impl fmt::Display for HeaderInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "B{}({})", self.round, self.author)
     }
@@ -231,6 +327,22 @@ pub struct Vote {
 }
 
 impl Vote {
+    pub async fn new_for_header_info(
+        header_info: &HeaderInfo,
+        author: &PublicKey,
+        bls_signature_service: &mut BlsSignatureService,
+    ) -> Self {
+        let vote = Self {
+            id: header_info.id.clone(),
+            round: header_info.round,
+            origin: header_info.author,
+            author: *author,
+            signature: SignatureShareG1::default(),
+        };
+        let signature = bls_signature_service.request_signature(vote.digest()).await;
+        Self { signature, ..vote }
+    }
+
     pub async fn new(
         header: &Header,
         author: &PublicKey,

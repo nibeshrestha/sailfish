@@ -30,7 +30,7 @@ impl VotesAggregator {
         }
     }
 
-    pub fn append(&mut self, vote: Vote, committee: &Committee) -> DagResult<Option<Certificate>> {
+    pub fn append(&mut self, vote: &Vote, committee: &Committee) -> DagResult<Option<Certificate>> {
         let author = vote.author;
         let author_bls = committee.get_bls_public_g2(&author);
 
@@ -85,7 +85,7 @@ impl CertificatesAggregator {
 
     pub fn append(
         &mut self,
-        certificate: Certificate,
+        certificate: &Certificate,
         committee: &Committee,
         leaders_per_round: usize,
     ) -> DagResult<Option<Vec<Certificate>>> {

@@ -19,5 +19,7 @@ mod worker;
 #[path = "tests/common.rs"]
 mod common;
 
-pub use crate::messages::{Certificate, Header};
-pub use crate::primary::{Primary, PrimaryWorkerMessage, Round, WorkerPrimaryMessage};
+pub use crate::messages::{Certificate, Header, HeaderInfo};
+pub use crate::primary::{
+    ConsensusMessage, HeaderMessage, Primary, PrimaryWorkerMessage, Round, WorkerPrimaryMessage,
+};

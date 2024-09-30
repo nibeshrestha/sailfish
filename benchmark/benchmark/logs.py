@@ -290,7 +290,7 @@ class LogParser:
         header_size = self.configs[0]['header_size']
         csv_file_path = f'benchmark_{self.committee_size}_{leaders_per_round}.csv'
         write_to_csv(round(leader_consensus_latency), round(non_leader_consensus_latency), round(consensus_tps), round(consensus_bps), round(
-            consensus_latency), round(end_to_end_tps), round(end_to_end_bps), round(end_to_end_latency), self.burst, header_size, csv_file_path)
+            consensus_latency), round(end_to_end_tps), round(end_to_end_bps), round(end_to_end_latency), round(blps_first), self.burst, header_size, csv_file_path)
 
         if self.consensus_only:
             return (
@@ -384,16 +384,16 @@ class LogParser:
         return cls(clients, primaries, burst, faults=faults, consensus_only=consensus_only)
 
 
-def write_to_csv(con_r0_latency, con_r1_latency, consensus_tps, consensus_bps, consensus_latency, e2e_tps, e2e_bps, e2e_latency, burst, header_size, csv_file_path):
+def write_to_csv(con_r0_latency, con_r1_latency, consensus_tps, consensus_bps, consensus_latency, e2e_tps, e2e_bps, e2e_latency, blps, burst, header_size, csv_file_path):
     # Open the CSV file in append mode
     with open(csv_file_path, mode='a', newline='') as csv_file:
         writer = csv.writer(csv_file)
         column_names = ['Consensus R Latency', 'Consensus R-1 Latency', 'Consensus Tps', 'Consensus Bps',
-                        'Consensus Latency', 'E2E Tps', 'E2E Bps', 'E2E Latency', 'Burst', 'Header size']
+                        'Consensus Latency', 'E2E Tps', 'E2E Bps', 'E2E Latency', 'BLPS', 'Burst', 'Header size']
         # If the file is empty, write the header
         if csv_file.tell() == 0:
             writer.writerow(column_names)
 
         # Write the extracted data to the CSV file
         writer.writerow([con_r0_latency, con_r1_latency, consensus_tps, consensus_bps,
-                        consensus_latency, e2e_tps, e2e_bps, e2e_latency, burst, header_size])
+                        consensus_latency, e2e_tps, e2e_bps, e2e_latency, blps, burst, header_size])
