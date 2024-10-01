@@ -15,6 +15,7 @@ use bytes::Bytes;
 use config::{Clan, Committee};
 use crypto::{BlsSignatureService, Hash as _};
 use crypto::{Digest, PublicKey, SignatureService};
+use futures::TryFutureExt;
 use log::{debug, error, info, warn};
 use network::{CancelHandler, ReliableSender};
 use std::collections::{HashMap, HashSet};
@@ -22,6 +23,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
+use rayon::{ThreadPool, ThreadPoolBuilder};
 
 // #[cfg(test)]
 // #[path = "tests/core_tests.rs"]
@@ -96,6 +98,7 @@ pub struct Core {
     no_vote_aggregators: HashMap<Round, HashMap<PublicKey, Box<NoVoteAggregator>>>,
     /// Numbers of leader per round
     leaders_per_round: usize,
+    pool: ThreadPool,
 }
 
 impl Core {
@@ -125,7 +128,9 @@ impl Core {
         tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
         tx_consensus_header_msg: Sender<ConsensusMessage>,
         leaders_per_round: usize,
+        threadpool_size: usize,
     ) {
+        let pool = ThreadPoolBuilder::new().num_threads(threadpool_size).build().unwrap();
         tokio::spawn(async move {
             Self {
                 name,
@@ -162,6 +167,7 @@ impl Core {
                 timeouts_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 no_vote_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 leaders_per_round,
+                pool
             }
             .run()
             .await;
@@ -555,18 +561,32 @@ impl Core {
                 let tx_primary = Arc::clone(&tx_primary);
                 let combined_key = Arc::clone(&self.combined_pubkey);
 
-                tokio::task::spawn_blocking(move || {
+                // tokio::task::spawn_blocking(move || {
+                //     certificate
+                //         .verify(&committee, &sorted_keys, &combined_key)
+                //         .map_err(DagError::from)
+                //         .unwrap();
+                //     debug!(
+                //         "Certificate verified for header {:?} round {:?}",
+                //         certificate.header_id, certificate.round
+                //     );
+                //     let _ =
+                //         tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
+                // });
+                
+                self.pool.spawn(move || {
                     certificate
                         .verify(&committee, &sorted_keys, &combined_key)
                         .map_err(DagError::from)
                         .unwrap();
-                    debug!(
+                    info!(
                         "Certificate verified for header {:?} round {:?}",
                         certificate.header_id, certificate.round
                     );
                     let _ =
                         tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
                 });
+
             }
         }
 

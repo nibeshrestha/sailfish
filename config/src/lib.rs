@@ -88,6 +88,7 @@ pub struct Parameters {
     /// is not reached. Denominated in ms.
     pub max_batch_delay: u64,
     pub leaders_per_round: usize,
+    pub threadpool_size: usize,
 }
 
 impl Default for Parameters {
@@ -103,6 +104,7 @@ impl Default for Parameters {
             tx_size: 512,
             max_batch_delay: 100,
             leaders_per_round: 3,
+            threadpool_size: 4,
         }
     }
 }

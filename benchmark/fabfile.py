@@ -24,15 +24,16 @@ def local(ctx, debug=False, consensus_only=False):
     }
     node_params = {
         'consensus_only': consensus_only,
-        'header_size': 51200,  # bytes
+        'header_size': 512000,  # bytes
         'max_header_delay': 1_000,  # ms
         'gc_depth': 50,  # rounds
         'sync_retry_delay': 10_000,  # ms
         'sync_retry_nodes': 3,  # number of nodes
-        'batch_size': 51200,  # bytescd
+        'batch_size': 512000,  # bytescd
         'tx_size': bench_params['tx_size'],
         'max_batch_delay': 200,  # ms
         'leaders_per_round': 7,
+        'threadpool_size': 2,
     }
     try:
         ret = LocalBench(bench_params, node_params).run(debug, consensus_only)
@@ -42,7 +43,7 @@ def local(ctx, debug=False, consensus_only=False):
 
 
 @task
-def create(ctx, nodes=2):
+def create(ctx, nodes=20):
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
@@ -100,16 +101,16 @@ def remote(ctx, burst = 50, debug=False, consensus_only=True, header_size=512):
     ''' Run benchmarks on GCP '''
     bench_params = {
         'faults': 0,
-        'tribe_size': 10,
-        "clan_size" : 5,
+        'tribe_size': 100,
+        "clan_size" : 60,
         'workers': 1,
         'collocate': True,
         'rate': [100000],
         'tx_size': 512,
-        'duration': 180,
+        'duration': 60,
         'runs': 1,
         'burst' : [burst],
-    } 
+    }
 
     nodes = bench_params['tribe_size']
     rate =  1000 * nodes * 20
@@ -125,7 +126,8 @@ def remote(ctx, burst = 50, debug=False, consensus_only=True, header_size=512):
         'batch_size': header_size,
         'tx_size': bench_params['tx_size'],  # bytes
         'max_batch_delay': 200,  # ms
-        'leaders_per_round': 10,
+        'leaders_per_round': 67,
+        'threadpool_size': 4,
     }
     try:
         Bench(ctx).run(bench_params, node_params, debug, consensus_only)

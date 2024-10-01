@@ -215,6 +215,7 @@ impl Primary {
             tx_no_vote_cert,
             tx_consensus_header_msg,
             leaders_per_round,
+            parameters.threadpool_size
         );
 
         // Keeps track of the latest consensus round and allows other tasks to clean up their their internal state
