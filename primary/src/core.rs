@@ -15,7 +15,7 @@ use bytes::Bytes;
 use config::{Clan, Committee};
 use crypto::{BlsSignatureService, Hash as _};
 use crypto::{Digest, PublicKey, SignatureService};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use network::{CancelHandler, ReliableSender};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -359,6 +359,7 @@ impl Core {
                 header_info = h_info.clone();
             }
         }
+        info!("received header {:?} round {}", header_info.id, header_info.round);
 
         // Indicate that we are processing this header.
         self.processing_header_infos
@@ -531,6 +532,7 @@ impl Core {
             // Add it to the votes' aggregator and try to make a new certificate.
             if let Some(certificate) = vote_aggregator.append(&vote, &self.committee, &self.clan)? {
                 debug!("Assembled {:?}", certificate);
+                info!("Assembled cert {:?} round {}", certificate.header_id, certificate.round);
 
                 // // Broadcast the certificate.
                 // let addresses = self
@@ -574,6 +576,7 @@ impl Core {
     #[async_recursion]
     async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
         debug!("Processing {:?}", certificate);
+        info!("verified cert {:?} round {}", certificate.header_id, certificate.round);
 
         // Ensure we have all the ancestors of this certificate yet. If we don't, the synchronizer will gather
         // them and trigger re-processing of this certificate.
@@ -584,6 +587,8 @@ impl Core {
             );
             return Ok(());
         }
+
+        
 
         // Store the certificate.
         let bytes = bincode::serialize(&certificate).expect("Failed to serialize certificate");
