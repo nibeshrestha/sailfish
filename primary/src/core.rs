@@ -297,26 +297,25 @@ impl Core {
         parent_certs: &Vec<Certificate>,
     ) -> DagResult<()> {
         for certificate in parent_certs {
-            // Check if we have enough certificates to enter a new dag round and propose a header.
-            if let Some(parents) = self
-                .certificates_aggregators
-                .entry(certificate.round())
-                .or_insert_with(|| Box::new(CertificatesAggregator::new()))
-                .append(&certificate, &self.committee, self.leaders_per_round)?
-            {
-                // Send it to the `Proposer`.
-                self.tx_proposer
-                    .send((parents, certificate.round()))
-                    .await
-                    .expect("Failed to send certificate");
-            }
-
             if self
                 .processed_certs
                 .entry(certificate.round)
                 .or_insert_with(HashSet::new)
                 .insert(certificate.origin())
             {
+                // Check if we have enough certificates to enter a new dag round and propose a header.
+                if let Some(parents) = self
+                    .certificates_aggregators
+                    .entry(certificate.round())
+                    .or_insert_with(|| Box::new(CertificatesAggregator::new()))
+                    .append(&certificate, &self.committee, self.leaders_per_round)?
+                {
+                    // Send it to the `Proposer`.
+                    self.tx_proposer
+                        .send((parents, certificate.round()))
+                        .await
+                        .expect("Failed to send certificate");
+                }
                 let id = certificate.header_id;
                 if let Err(e) = self
                     .tx_consensus_header_msg

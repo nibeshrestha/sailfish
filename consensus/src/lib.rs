@@ -2,7 +2,7 @@
 use config::Committee;
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
-use log::{debug, info, log_enabled, warn};
+use log::{debug, info, warn};
 use primary::{Certificate, ConsensusMessage, Round};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
