@@ -5,8 +5,7 @@ use crate::messages::{
 };
 use crate::primary::Round;
 use config::Committee;
-use crypto::Hash as _;
-use crypto::{Digest, PublicKey, SignatureService};
+use crypto::{PublicKey, SignatureService};
 #[cfg(feature = "benchmark")]
 use log::info;
 use log::{debug, warn};
@@ -29,7 +28,6 @@ pub struct Proposer {
     signature_service: SignatureService,
     /// The size of the headers' payload.
     header_size: usize,
-    batch_size: usize,
     tx_size: usize,
     /// The maximum delay to wait for batches' digests.
     max_header_delay: u64,
@@ -75,7 +73,6 @@ impl Proposer {
         committee: Committee,
         signature_service: SignatureService,
         header_size: usize,
-        batch_size: usize,
         tx_size: usize,
         max_header_delay: u64,
         consensus_only: bool,
@@ -95,7 +92,6 @@ impl Proposer {
                 committee,
                 signature_service,
                 header_size,
-                batch_size,
                 tx_size,
                 max_header_delay,
                 consensus_only,

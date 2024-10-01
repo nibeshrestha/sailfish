@@ -249,7 +249,6 @@ impl Primary {
             committee.clone(),
             signature_service,
             parameters.header_size,
-            parameters.batch_size,
             parameters.tx_size,
             parameters.max_header_delay,
             parameters.consensus_only,

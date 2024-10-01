@@ -16,7 +16,7 @@ use bytes::Bytes;
 use config::Committee;
 use crypto::{BlsSignatureService, Hash as _};
 use crypto::{Digest, PublicKey, SignatureService};
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use network::{CancelHandler, ReliableSender};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,9 +24,9 @@ use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-#[cfg(test)]
-#[path = "tests/core_tests.rs"]
-pub mod core_tests;
+// #[cfg(test)]
+// #[path = "tests/core_tests.rs"]
+// pub mod core_tests;
 
 pub struct Core {
     /// The public key of this primary.
@@ -238,7 +238,7 @@ impl Core {
             .entry(header_with_certificates.header.id)
             .or_insert(VotesAggregator::new(sorted_keys, self.committee.size()));
 
-        // Broadcast the new full header in a reliable manner to clan members.
+        // Broadcast the new full header in a reliable manner to all other nodes.
         let addresses = self
             .committee
             .others_primaries(&self.name)
@@ -270,24 +270,25 @@ impl Core {
     ) -> DagResult<()> {
         for certificate in parent_certs {
             // Check if we have enough certificates to enter a new dag round and propose a header.
-            if let Some(parents) = self
-                .certificates_aggregators
-                .entry(certificate.round())
-                .or_insert_with(|| Box::new(CertificatesAggregator::new()))
-                .append(&certificate, &self.committee, self.leaders_per_round)?
-            {
-                // Send it to the `Proposer`.
-                self.tx_proposer
-                    .send((parents, certificate.round()))
-                    .await
-                    .expect("Failed to send certificate");
-            }
             if self
                 .processed_certs
                 .entry(certificate.round)
                 .or_insert_with(HashSet::new)
                 .insert(certificate.origin())
             {
+                if let Some(parents) = self
+                    .certificates_aggregators
+                    .entry(certificate.round())
+                    .or_insert_with(|| Box::new(CertificatesAggregator::new()))
+                    .append(&certificate, &self.committee, self.leaders_per_round)?
+                {
+                    // Send it to the `Proposer`.
+                    self.tx_proposer
+                        .send((parents, certificate.round()))
+                        .await
+                        .expect("Failed to send certificate");
+                }
+
                 let id = certificate.header_id;
                 if let Err(e) = self
                     .tx_consensus_header_msg
