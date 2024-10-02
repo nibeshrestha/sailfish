@@ -98,7 +98,7 @@ pub struct Core {
     no_vote_aggregators: HashMap<Round, HashMap<PublicKey, Box<NoVoteAggregator>>>,
     /// Numbers of leader per round
     leaders_per_round: usize,
-    pool: ThreadPool,
+    // pool: ThreadPool,
 }
 
 impl Core {
@@ -128,9 +128,9 @@ impl Core {
         tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
         tx_consensus_header_msg: Sender<ConsensusMessage>,
         leaders_per_round: usize,
-        threadpool_size: usize,
+        _threadpool_size: usize,
     ) {
-        let pool = ThreadPoolBuilder::new().num_threads(threadpool_size).build().unwrap();
+        // let pool = ThreadPoolBuilder::new().num_threads(threadpool_size).build().unwrap();
         tokio::spawn(async move {
             Self {
                 name,
@@ -167,7 +167,7 @@ impl Core {
                 timeouts_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 no_vote_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 leaders_per_round,
-                pool
+                // pool
             }
             .run()
             .await;
