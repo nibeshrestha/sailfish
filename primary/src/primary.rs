@@ -196,6 +196,7 @@ impl Primary {
         let signature_service = SignatureService::new(secret);
         let bls_signature_service = BlsSignatureService::new(bls_secret);
         let sorted_keys = Arc::new(sorted_keys);
+        let (tx_certs, rx_certs) = channel(CHANNEL_CAPACITY);
         // The `Core` receives and handles headers, votes, and certificates from the other primaries.
         Core::spawn(
             name,
@@ -221,7 +222,7 @@ impl Primary {
             tx_timeout_cert,
             tx_no_vote_cert,
             tx_consensus_header_msg,
-            // tx_vote,
+            tx_certs,
             leaders_per_round,
         );
 
@@ -238,6 +239,7 @@ impl Primary {
 
         CertificateHandler::spawn(
             rx_certificate,
+            rx_certs,
             tx_consensus,
             tx_parents,
             leaders_per_round,

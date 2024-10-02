@@ -16,6 +16,7 @@ use crate::error::DagResult;
 pub struct CertificateHandler {
     certificates_aggregators: HashMap<Round, Box<CertificatesAggregator>>,
     rx_certificate: Receiver<Certificate>,
+    rx_certs: Receiver<Vec<Certificate>>,
     tx_consensus: Sender<Certificate>,
     tx_proposer: Sender<(Vec<Certificate>, Round)>,
     processed_certs: HashMap<Round, HashSet<PublicKey>>,
@@ -30,6 +31,7 @@ pub struct CertificateHandler {
 impl CertificateHandler {
     pub fn spawn(
         rx_certificate: Receiver<Certificate>,
+        rx_certs: Receiver<Vec<Certificate>>,
         tx_consensus: Sender<Certificate>,
         tx_proposer: Sender<(Vec<Certificate>, Round)>,
         leaders_per_round: usize,
@@ -40,6 +42,7 @@ impl CertificateHandler {
         tokio::spawn(async move {
             Self {
                 rx_certificate,
+                rx_certs,
                 certificates_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 tx_consensus,
                 tx_proposer,
@@ -58,7 +61,7 @@ impl CertificateHandler {
 
     #[async_recursion]
     async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
-        info!(
+        debug!(
             "Processing cert {:?} round {}",
             certificate.header_id, certificate.round
         );
@@ -100,7 +103,12 @@ impl CertificateHandler {
         loop {
             let _ = tokio::select! {
                 Some(certificate) = self.rx_certificate.recv() => self.process_certificate(certificate).await,
-                // Some(certificate) = self.rx_certificate_waiter.recv() => self.process_certificate(certificate).await,
+                Some(certs) = self.rx_certs.recv() => {
+                    for cert in certs {
+                        let _ = self.process_certificate(cert).await;
+                    }
+                    Ok(())
+                }
             };
 
             // Cleanup internal state.

@@ -18,7 +18,6 @@ use crypto::{Digest, PublicKey, SignatureService};
 use futures::TryFutureExt;
 use log::{debug, error, info, warn};
 use network::{CancelHandler, ReliableSender};
-use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -99,7 +98,7 @@ pub struct Core {
     no_vote_aggregators: HashMap<Round, HashMap<PublicKey, Box<NoVoteAggregator>>>,
     /// Numbers of leader per round
     leaders_per_round: usize,
-    // pool: ThreadPool,
+    tx_certs: Sender<Vec<Certificate>>,
 }
 
 impl Core {
@@ -128,7 +127,7 @@ impl Core {
         tx_timeout_cert: Sender<(TimeoutCert, Round)>,
         tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
         tx_consensus_header_msg: Sender<ConsensusMessage>,
-        // tx_vote: Sender<Vote>,
+        tx_certs: Sender<Vec<Certificate>>,
         leaders_per_round: usize,
     ) {
         // let pool = ThreadPoolBuilder::new().num_threads(threadpool_size).build().unwrap();
@@ -168,8 +167,8 @@ impl Core {
                 cancel_handlers: HashMap::with_capacity(2 * gc_depth as usize),
                 timeouts_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 no_vote_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
+                tx_certs,
                 leaders_per_round,
-                // pool,
             }
             .run()
             .await;
@@ -347,13 +346,21 @@ impl Core {
 
         match header_msg {
             HeaderMessage::HeaderWithCertificate(header_with_parents) => {
-                self.process_parent_certificates(&header_with_parents.parents)
-                    .await?;
+                let _ = self
+                    .tx_certs
+                    .send(header_with_parents.parents.clone())
+                    .await;
+                // self.process_parent_certificates(&header_with_parents.parents)
+                // .await?;
                 header_info = HeaderInfo::create_from(&header_with_parents.header);
             }
             HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
-                self.process_parent_certificates(&header_info_with_parents.parents)
-                    .await?;
+                // self.process_parent_certificates(&header_info_with_parents.parents)
+                //     .await?;
+                let _ = self
+                    .tx_certs
+                    .send(header_info_with_parents.parents.clone())
+                    .await;
                 header_info = header_info_with_parents.header_info.clone();
             }
             HeaderMessage::Header(header) => {
