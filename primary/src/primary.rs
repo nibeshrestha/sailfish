@@ -1,4 +1,5 @@
 use crate::aggregators::VotesAggregator;
+use crate::certificate_handler::CertificateHandler;
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::certificate_waiter::CertificateWaiter;
 use crate::core::Core;
@@ -215,8 +216,8 @@ impl Primary {
             /* rx_proposer */ rx_headers,
             rx_timeout,
             rx_no_vote_msg,
-            tx_consensus,
-            /* tx_proposer */ tx_parents,
+            tx_consensus.clone(),
+            /* tx_proposer */ tx_parents.clone(),
             tx_timeout_cert,
             tx_no_vote_cert,
             tx_consensus_header_msg,
@@ -224,13 +225,25 @@ impl Primary {
             leaders_per_round,
         );
 
+        let (tx_certificate, rx_certificate) = channel(CHANNEL_CAPACITY);
+
         VoteProcessor::spawn(
             Arc::new(committee.clone()),
             Arc::new(clan.clone()),
             sorted_keys,
             Arc::new(combined_key),
             rx_vote,
-            tx_primary_messages,
+            tx_certificate,
+        );
+
+        CertificateHandler::spawn(
+            rx_certificate,
+            tx_consensus,
+            tx_parents,
+            leaders_per_round,
+            parameters.gc_depth,
+            committee.clone(),
+            consensus_round.clone(),
         );
 
         // Keeps track of the latest consensus round and allows other tasks to clean up their their internal state
@@ -319,8 +332,9 @@ impl MessageHandler for PrimaryReceiverHandler {
                 .send((missing, requestor))
                 .await
                 .expect("Failed to send primary message"),
-            PrimaryMessage::Vote(vote) => 
-            self.tx_vote.send(vote).await.expect("Faild to send vote"),
+            PrimaryMessage::Vote(vote) => {
+                self.tx_vote.send(vote).await.expect("Faild to send vote")
+            }
 
             request => self
                 .tx_primary_messages

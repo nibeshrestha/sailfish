@@ -1,11 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
-// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::{
     aggregators::VotesAggregator,
     error::{DagError, DagResult},
     messages::Vote,
-    primary::PrimaryMessage,
+    Certificate,
 };
 use blsttc::PublicKeyShareG2;
 use config::{Clan, Committee};
@@ -21,7 +20,7 @@ pub struct VoteProcessor {
     sorted_keys: Arc<Vec<PublicKeyShareG2>>,
     combined_pubkey: Arc<PublicKeyShareG2>,
     rx_vote: Receiver<Vote>,
-    tx_primary: Sender<PrimaryMessage>,
+    tx_primary: Sender<Certificate>,
     processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
 }
 
@@ -32,7 +31,7 @@ impl VoteProcessor {
         sorted_keys: Arc<Vec<PublicKeyShareG2>>,
         combined_pubkey: Arc<PublicKeyShareG2>,
         rx_vote: Receiver<Vote>,
-        tx_primary: Sender<PrimaryMessage>,
+        tx_primary: Sender<Certificate>,
     ) {
         tokio::spawn(async move {
             Self {
@@ -90,8 +89,7 @@ impl VoteProcessor {
                             "Certificate verified for header {:?} round {:?}",
                             certificate.header_id, certificate.round
                         );
-                        let _ = tx_primary
-                            .blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
+                        let _ = tx_primary.blocking_send(certificate);
                     });
                 }
             }

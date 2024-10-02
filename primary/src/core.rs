@@ -591,10 +591,7 @@ impl Core {
     #[async_recursion]
     async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
         debug!("Processing {:?}", certificate);
-        info!(
-            "verified cert {:?} round {}",
-            certificate.header_id, certificate.round
-        );
+        info!("received cert {:?}", certificate.header_id);
 
         // Ensure we have all the ancestors of this certificate yet. If we don't, the synchronizer will gather
         // them and trigger re-processing of this certificate.
