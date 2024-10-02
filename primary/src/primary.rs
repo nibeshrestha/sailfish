@@ -20,7 +20,6 @@ use blsttc::PublicKeyShareG2;
 use bytes::Bytes;
 use config::{BlsKeyPair, Clan, Committee, KeyPair, Parameters, WorkerId};
 use crypto::{BlsSignatureService, Digest, PublicKey, SignatureService};
-use std::sync::Mutex;
 use futures::sink::SinkExt as _;
 use log::info;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
@@ -29,6 +28,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+use std::sync::Mutex;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
@@ -144,6 +144,7 @@ impl Primary {
             /* handler */
             PrimaryReceiverHandler {
                 tx_primary_messages: tx_primary_messages.clone(),
+                tx_vote: tx_vote.clone(),
                 tx_cert_requests,
             },
         );
@@ -219,13 +220,18 @@ impl Primary {
             tx_timeout_cert,
             tx_no_vote_cert,
             tx_consensus_header_msg,
-            tx_vote,
+            // tx_vote,
             leaders_per_round,
-            parameters.threadpool_size,
         );
 
-        VoteProcessor::spawn(Arc::new(committee.clone()),
-        Arc::new(clan.clone()), sorted_keys, Arc::new(combined_key), rx_vote, tx_primary_messages);
+        VoteProcessor::spawn(
+            Arc::new(committee.clone()),
+            Arc::new(clan.clone()),
+            sorted_keys,
+            Arc::new(combined_key),
+            rx_vote,
+            tx_primary_messages,
+        );
 
         // Keeps track of the latest consensus round and allows other tasks to clean up their their internal state
         GarbageCollector::spawn(&name, &committee, consensus_round.clone(), rx_consensus);
@@ -296,6 +302,7 @@ impl Primary {
 #[derive(Clone)]
 struct PrimaryReceiverHandler {
     tx_primary_messages: Sender<PrimaryMessage>,
+    tx_vote: Sender<Vote>,
     tx_cert_requests: Sender<(Vec<Digest>, PublicKey)>,
 }
 
@@ -312,6 +319,9 @@ impl MessageHandler for PrimaryReceiverHandler {
                 .send((missing, requestor))
                 .await
                 .expect("Failed to send primary message"),
+            PrimaryMessage::Vote(vote) => 
+            self.tx_vote.send(vote).await.expect("Faild to send vote"),
+
             request => self
                 .tx_primary_messages
                 .send(request)

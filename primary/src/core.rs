@@ -18,12 +18,12 @@ use crypto::{Digest, PublicKey, SignatureService};
 use futures::TryFutureExt;
 use log::{debug, error, info, warn};
 use network::{CancelHandler, ReliableSender};
+use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
-use rayon::{ThreadPool, ThreadPoolBuilder};
 
 // #[cfg(test)]
 // #[path = "tests/core_tests.rs"]
@@ -76,7 +76,7 @@ pub struct Core {
     tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
     /// Send a the header that has voted for the prev leader to the `Consensus` logic.
     tx_consensus_header_msg: Sender<ConsensusMessage>,
-    tx_vote: Sender<Vote>,
+    // tx_vote: Sender<Vote>,
     /// The last garbage collected round.
     gc_round: Round,
     /// The authors of the last voted headers.
@@ -99,7 +99,7 @@ pub struct Core {
     no_vote_aggregators: HashMap<Round, HashMap<PublicKey, Box<NoVoteAggregator>>>,
     /// Numbers of leader per round
     leaders_per_round: usize,
-    pool: ThreadPool,
+    // pool: ThreadPool,
 }
 
 impl Core {
@@ -128,11 +128,10 @@ impl Core {
         tx_timeout_cert: Sender<(TimeoutCert, Round)>,
         tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
         tx_consensus_header_msg: Sender<ConsensusMessage>,
-        tx_vote: Sender<Vote>,
+        // tx_vote: Sender<Vote>,
         leaders_per_round: usize,
-        threadpool_size: usize,
     ) {
-        let pool = ThreadPoolBuilder::new().num_threads(threadpool_size).build().unwrap();
+        // let pool = ThreadPoolBuilder::new().num_threads(threadpool_size).build().unwrap();
         tokio::spawn(async move {
             Self {
                 name,
@@ -158,7 +157,7 @@ impl Core {
                 tx_timeout_cert,
                 tx_no_vote_cert,
                 tx_consensus_header_msg,
-                tx_vote,
+                // tx_vote,
                 gc_round: 0,
                 last_voted: HashMap::with_capacity(2 * gc_depth as usize),
                 processing_header_infos: HashMap::new(),
@@ -170,7 +169,7 @@ impl Core {
                 timeouts_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 no_vote_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 leaders_per_round,
-                pool,
+                // pool,
             }
             .run()
             .await;
@@ -242,7 +241,6 @@ impl Core {
         let h_round = header_with_certificates.header.round;
         let parents = header_with_certificates.parents.clone();
 
-        let sorted_keys = Arc::clone(&self.sorted_keys);
         let header_info = HeaderInfo::create_from(&header_with_certificates.header);
 
         self.processing_header_infos
@@ -365,7 +363,10 @@ impl Core {
                 header_info = h_info.clone();
             }
         }
-        info!("received header {:?} round {}", header_info.id, header_info.round);
+        info!(
+            "received header {:?} round {}",
+            header_info.id, header_info.round
+        );
 
         // Indicate that we are processing this header.
         self.processing_header_infos
@@ -567,7 +568,7 @@ impl Core {
         //             let _ =
         //                 tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
         //         });
-                
+
         //         // self.pool.spawn(move || {
         //         //     certificate
         //         //         .verify(&committee, &sorted_keys, &combined_key)
@@ -590,7 +591,10 @@ impl Core {
     #[async_recursion]
     async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
         debug!("Processing {:?}", certificate);
-        info!("verified cert {:?} round {}", certificate.header_id, certificate.round);
+        info!(
+            "verified cert {:?} round {}",
+            certificate.header_id, certificate.round
+        );
 
         // Ensure we have all the ancestors of this certificate yet. If we don't, the synchronizer will gather
         // them and trigger re-processing of this certificate.
@@ -795,16 +799,16 @@ impl Core {
                             }
 
                         },
-                        PrimaryMessage::Vote(vote) => {
-                            match self.sanitize_vote(&vote) {
-                                Ok(()) => {
-                                    let res = self.tx_vote.send(vote).await.unwrap();
-                                    Ok(())
-                                },
-                                error => error,
+                        // PrimaryMessage::Vote(vote) => {
+                        //     match self.sanitize_vote(&vote) {
+                        //         Ok(()) => {
+                        //             let _ = self.tx_vote.send(vote).await.unwrap();
+                        //             Ok(())
+                        //         },
+                        //         error => error,
 
-                            }
-                        },
+                        //     }
+                        // },
                         PrimaryMessage::Certificate(certificate) => {
                             let res = self.sanitize_certificate(&certificate, &sender_channel);
                             res

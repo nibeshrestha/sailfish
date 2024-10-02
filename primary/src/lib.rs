@@ -13,8 +13,8 @@ mod payload_receiver;
 mod primary;
 mod proposer;
 mod synchronizer;
-mod worker;
 mod vote_processor;
+mod worker;
 
 #[cfg(test)]
 #[path = "tests/common.rs"]

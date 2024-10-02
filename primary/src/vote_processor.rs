@@ -1,13 +1,16 @@
-use std::{collections::HashMap, sync::{Arc}};
+use std::{collections::HashMap, sync::Arc};
 
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::{
-    aggregators::VotesAggregator, error::{DagError, DagResult}, messages::Vote, primary::{HeaderMessage, HeaderType, PrimaryMessage}, HeaderInfo
+    aggregators::VotesAggregator,
+    error::{DagError, DagResult},
+    messages::Vote,
+    primary::PrimaryMessage,
 };
 use blsttc::PublicKeyShareG2;
 use config::{Clan, Committee};
-use crypto::{Digest, PublicKey};
-use log::{debug, error, info, warn};
+use crypto::Digest;
+use log::{debug, info};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 /// A task dedicated to help other authorities by replying to their certificates requests.
@@ -15,7 +18,7 @@ pub struct VoteProcessor {
     /// The committee information.
     committee: Arc<Committee>,
     clan: Arc<Clan>,
-    sorted_keys : Arc<Vec<PublicKeyShareG2>>,
+    sorted_keys: Arc<Vec<PublicKeyShareG2>>,
     combined_pubkey: Arc<PublicKeyShareG2>,
     rx_vote: Receiver<Vote>,
     tx_primary: Sender<PrimaryMessage>,
@@ -26,7 +29,7 @@ impl VoteProcessor {
     pub fn spawn(
         committee: Arc<Committee>,
         clan: Arc<Clan>,
-        sorted_keys : Arc<Vec<PublicKeyShareG2>>,
+        sorted_keys: Arc<Vec<PublicKeyShareG2>>,
         combined_pubkey: Arc<PublicKeyShareG2>,
         rx_vote: Receiver<Vote>,
         tx_primary: Sender<PrimaryMessage>,
@@ -39,15 +42,15 @@ impl VoteProcessor {
                 combined_pubkey,
                 rx_vote,
                 tx_primary,
-                processing_vote_aggregators : HashMap::new(),
+                processing_vote_aggregators: HashMap::new(),
             }
             .run()
-            .await.unwrap();
+            .await
+            .unwrap();
         });
     }
 
-    async fn run(&mut self) -> DagResult<()>{
-
+    async fn run(&mut self) -> DagResult<()> {
         let tx_primary = Arc::new(self.tx_primary.clone());
         while let Some(vote) = self.rx_vote.recv().await {
             debug!("Processing {:?}", vote);
@@ -64,24 +67,13 @@ impl VoteProcessor {
             // Add it to the votes' aggregator and try to make a new certificate.
             if let Some(vote_aggregator) = self.processing_vote_aggregators.get_mut(&vote.id) {
                 // Add it to the votes' aggregator and try to make a new certificate.
-                if let Some(certificate) = vote_aggregator.append(&vote, &self.committee, &self.clan)? {
-                    debug!("Assembled {:?}", certificate);
-                    info!("Assembled cert {:?} round {}", certificate.header_id, certificate.round);
-
-                    // // Broadcast the certificate.
-                    // let addresses = self
-                    //     .committee
-                    //     .others_primaries(&self.name)
-                    //     .iter()
-                    //     .map(|(_, x)| x.primary_to_primary)
-                    //     .collect();
-                    // let bytes = bincode::serialize(&PrimaryMessage::Certificate(certificate.clone()))
-                    //     .expect("Failed to serialize our own certificate");
-                    // let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
-                    // self.cancel_handlers
-                    //     .entry(certificate.round())
-                    //     .or_insert_with(Vec::new)
-                    //     .extend(handlers);
+                if let Some(certificate) =
+                    vote_aggregator.append(&vote, &self.committee, &self.clan)?
+                {
+                    info!(
+                        "Assembled cert {:?} round {}",
+                        certificate.header_id, certificate.round
+                    );
 
                     // Process the new certificate.
                     let committee = Arc::clone(&self.committee);
@@ -94,31 +86,15 @@ impl VoteProcessor {
                             .verify(&committee, &sorted_keys, &combined_key)
                             .map_err(DagError::from)
                             .unwrap();
-                        info!(
+                        debug!(
                             "Certificate verified for header {:?} round {:?}",
                             certificate.header_id, certificate.round
                         );
-                        let _ =
-                            tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
+                        let _ = tx_primary
+                            .blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
                     });
-                    
-                    // self.pool.spawn(move || {
-                    //     certificate
-                    //         .verify(&committee, &sorted_keys, &combined_key)
-                    //         .map_err(DagError::from)
-                    //         .unwrap();
-                    //     info!(
-                    //         "Certificate verified for header {:?} round {:?}",
-                    //         certificate.header_id, certificate.round
-                    //     );
-                    //     let _ =
-                    //         tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
-                    // });
-
                 }
-
             }
-            
         }
         Ok(())
     }
