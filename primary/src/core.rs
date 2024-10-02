@@ -561,20 +561,7 @@ impl Core {
                 let tx_primary = Arc::clone(&tx_primary);
                 let combined_key = Arc::clone(&self.combined_pubkey);
 
-                // tokio::task::spawn_blocking(move || {
-                //     certificate
-                //         .verify(&committee, &sorted_keys, &combined_key)
-                //         .map_err(DagError::from)
-                //         .unwrap();
-                //     debug!(
-                //         "Certificate verified for header {:?} round {:?}",
-                //         certificate.header_id, certificate.round
-                //     );
-                //     let _ =
-                //         tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
-                // });
-                
-                self.pool.spawn(move || {
+                tokio::task::spawn_blocking(move || {
                     certificate
                         .verify(&committee, &sorted_keys, &combined_key)
                         .map_err(DagError::from)
@@ -586,6 +573,19 @@ impl Core {
                     let _ =
                         tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
                 });
+                
+                // self.pool.spawn(move || {
+                //     certificate
+                //         .verify(&committee, &sorted_keys, &combined_key)
+                //         .map_err(DagError::from)
+                //         .unwrap();
+                //     info!(
+                //         "Certificate verified for header {:?} round {:?}",
+                //         certificate.header_id, certificate.round
+                //     );
+                //     let _ =
+                //         tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
+                // });
 
             }
         }
@@ -607,8 +607,6 @@ impl Core {
             );
             return Ok(());
         }
-
-        
 
         // Store the certificate.
         let bytes = bincode::serialize(&certificate).expect("Failed to serialize certificate");
