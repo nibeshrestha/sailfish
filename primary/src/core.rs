@@ -76,6 +76,7 @@ pub struct Core {
     tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
     /// Send a the header that has voted for the prev leader to the `Consensus` logic.
     tx_consensus_header_msg: Sender<ConsensusMessage>,
+    tx_vote: Sender<Vote>,
     /// The last garbage collected round.
     gc_round: Round,
     /// The authors of the last voted headers.
@@ -83,7 +84,7 @@ pub struct Core {
     /// For storing info of header infos in processing
     processing_header_infos: HashMap<Digest, HeaderInfo>,
     /// For storing info of vote aggregators in processing
-    processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
+    // processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
     /// For storing info of processed certificates
     processed_certs: HashMap<Round, HashSet<PublicKey>>,
     /// Aggregates certificates to use as parents for new headers.
@@ -127,6 +128,7 @@ impl Core {
         tx_timeout_cert: Sender<(TimeoutCert, Round)>,
         tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
         tx_consensus_header_msg: Sender<ConsensusMessage>,
+        tx_vote: Sender<Vote>,
         leaders_per_round: usize,
         threadpool_size: usize,
     ) {
@@ -156,10 +158,11 @@ impl Core {
                 tx_timeout_cert,
                 tx_no_vote_cert,
                 tx_consensus_header_msg,
+                tx_vote,
                 gc_round: 0,
                 last_voted: HashMap::with_capacity(2 * gc_depth as usize),
                 processing_header_infos: HashMap::new(),
-                processing_vote_aggregators: HashMap::new(),
+                // processing_vote_aggregators: HashMap::new(),
                 processed_certs: HashMap::with_capacity(2 * gc_depth as usize),
                 certificates_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 network: ReliableSender::new(),
@@ -167,7 +170,7 @@ impl Core {
                 timeouts_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 no_vote_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 leaders_per_round,
-                pool
+                pool,
             }
             .run()
             .await;
@@ -245,9 +248,6 @@ impl Core {
         self.processing_header_infos
             .entry(header_info.id)
             .or_insert(header_info.clone());
-        self.processing_vote_aggregators
-            .entry(header_with_certificates.header.id)
-            .or_insert(VotesAggregator::new(sorted_keys, self.committee.size()));
 
         // Broadcast the new full header in a reliable manner to clan members.
         let addresses: Vec<_>;
@@ -371,12 +371,6 @@ impl Core {
         self.processing_header_infos
             .entry(header_info.id)
             .or_insert(header_info.clone());
-        self.processing_vote_aggregators
-            .entry(header_info.id)
-            .or_insert(VotesAggregator::new(
-                self.sorted_keys.clone(),
-                self.committee.size(),
-            ));
 
         // Check if we can vote for this header.
         if self
@@ -524,71 +518,71 @@ impl Core {
     ) -> DagResult<()> {
         debug!("Processing {:?}", vote);
 
-        if !self.processing_vote_aggregators.contains_key(&vote.id) {
-            self.processing_vote_aggregators
-                .entry(vote.id)
-                .or_insert(VotesAggregator::new(
-                    self.sorted_keys.clone(),
-                    self.committee.size(),
-                ));
-        }
+        // if !self.processing_vote_aggregators.contains_key(&vote.id) {
+        //     self.processing_vote_aggregators
+        //         .entry(vote.id)
+        //         .or_insert(VotesAggregator::new(
+        //             self.sorted_keys.clone(),
+        //             self.committee.size(),
+        //         ));
+        // }
 
-        // Add it to the votes' aggregator and try to make a new certificate.
-        if let Some(vote_aggregator) = self.processing_vote_aggregators.get_mut(&vote.id) {
-            // Add it to the votes' aggregator and try to make a new certificate.
-            if let Some(certificate) = vote_aggregator.append(&vote, &self.committee, &self.clan)? {
-                debug!("Assembled {:?}", certificate);
-                info!("Assembled cert {:?} round {}", certificate.header_id, certificate.round);
+        // // Add it to the votes' aggregator and try to make a new certificate.
+        // if let Some(vote_aggregator) = self.processing_vote_aggregators.get_mut(&vote.id) {
+        //     // Add it to the votes' aggregator and try to make a new certificate.
+        //     if let Some(certificate) = vote_aggregator.append(&vote, &self.committee, &self.clan)? {
+        //         debug!("Assembled {:?}", certificate);
+        //         info!("Assembled cert {:?} round {}", certificate.header_id, certificate.round);
 
-                // // Broadcast the certificate.
-                // let addresses = self
-                //     .committee
-                //     .others_primaries(&self.name)
-                //     .iter()
-                //     .map(|(_, x)| x.primary_to_primary)
-                //     .collect();
-                // let bytes = bincode::serialize(&PrimaryMessage::Certificate(certificate.clone()))
-                //     .expect("Failed to serialize our own certificate");
-                // let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
-                // self.cancel_handlers
-                //     .entry(certificate.round())
-                //     .or_insert_with(Vec::new)
-                //     .extend(handlers);
+        //         // // Broadcast the certificate.
+        //         // let addresses = self
+        //         //     .committee
+        //         //     .others_primaries(&self.name)
+        //         //     .iter()
+        //         //     .map(|(_, x)| x.primary_to_primary)
+        //         //     .collect();
+        //         // let bytes = bincode::serialize(&PrimaryMessage::Certificate(certificate.clone()))
+        //         //     .expect("Failed to serialize our own certificate");
+        //         // let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
+        //         // self.cancel_handlers
+        //         //     .entry(certificate.round())
+        //         //     .or_insert_with(Vec::new)
+        //         //     .extend(handlers);
 
-                // Process the new certificate.
-                let committee = Arc::clone(&self.committee);
-                let sorted_keys = Arc::clone(&self.sorted_keys);
-                let tx_primary = Arc::clone(&tx_primary);
-                let combined_key = Arc::clone(&self.combined_pubkey);
+        //         // Process the new certificate.
+        //         let committee = Arc::clone(&self.committee);
+        //         let sorted_keys = Arc::clone(&self.sorted_keys);
+        //         let tx_primary = Arc::clone(&tx_primary);
+        //         let combined_key = Arc::clone(&self.combined_pubkey);
 
-                tokio::task::spawn_blocking(move || {
-                    certificate
-                        .verify(&committee, &sorted_keys, &combined_key)
-                        .map_err(DagError::from)
-                        .unwrap();
-                    info!(
-                        "Certificate verified for header {:?} round {:?}",
-                        certificate.header_id, certificate.round
-                    );
-                    let _ =
-                        tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
-                });
+        //         tokio::task::spawn_blocking(move || {
+        //             certificate
+        //                 .verify(&committee, &sorted_keys, &combined_key)
+        //                 .map_err(DagError::from)
+        //                 .unwrap();
+        //             info!(
+        //                 "Certificate verified for header {:?} round {:?}",
+        //                 certificate.header_id, certificate.round
+        //             );
+        //             let _ =
+        //                 tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
+        //         });
                 
-                // self.pool.spawn(move || {
-                //     certificate
-                //         .verify(&committee, &sorted_keys, &combined_key)
-                //         .map_err(DagError::from)
-                //         .unwrap();
-                //     info!(
-                //         "Certificate verified for header {:?} round {:?}",
-                //         certificate.header_id, certificate.round
-                //     );
-                //     let _ =
-                //         tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
-                // });
+        //         // self.pool.spawn(move || {
+        //         //     certificate
+        //         //         .verify(&committee, &sorted_keys, &combined_key)
+        //         //         .map_err(DagError::from)
+        //         //         .unwrap();
+        //         //     info!(
+        //         //         "Certificate verified for header {:?} round {:?}",
+        //         //         certificate.header_id, certificate.round
+        //         //     );
+        //         //     let _ =
+        //         //         tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
+        //         // });
 
-            }
-        }
+        //     }
+        // }
 
         Ok(())
     }
@@ -803,8 +797,11 @@ impl Core {
                         },
                         PrimaryMessage::Vote(vote) => {
                             match self.sanitize_vote(&vote) {
-                                Ok(()) => self.process_vote(&vote, &sender_channel).await,
-                                error => error
+                                Ok(()) => {
+                                    let res = self.tx_vote.send(vote).await.unwrap();
+                                    Ok(())
+                                },
+                                error => error,
 
                             }
                         },

@@ -14,6 +14,7 @@ mod primary;
 mod proposer;
 mod synchronizer;
 mod worker;
+mod vote_processor;
 
 #[cfg(test)]
 #[path = "tests/common.rs"]
