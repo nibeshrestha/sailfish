@@ -1,3 +1,5 @@
+use crate::aggregators::VotesAggregator;
+use crate::certificate_handler::CertificateHandler;
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::certificate_waiter::CertificateWaiter;
 use crate::core::Core;
@@ -12,6 +14,7 @@ use crate::messages::{
 // use crate::payload_receiver::PayloadReceiver;
 use crate::proposer::Proposer;
 use crate::synchronizer::Synchronizer;
+use crate::vote_processor::VoteProcessor;
 use crate::worker::Worker;
 use async_trait::async_trait;
 use blsttc::PublicKeyShareG2;
@@ -22,9 +25,11 @@ use futures::sink::SinkExt as _;
 use log::info;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::error::Error;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+use std::sync::Mutex;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
@@ -114,6 +119,7 @@ impl Primary {
         let (tx_certificates_loopback, rx_certificates_loopback) = channel(CHANNEL_CAPACITY);
         let (tx_primary_messages, rx_primary_messages) = channel(CHANNEL_CAPACITY);
         let (tx_cert_requests, rx_cert_requests) = channel(CHANNEL_CAPACITY);
+        let (tx_vote, rx_vote) = channel(CHANNEL_CAPACITY);
 
         // Write the parameters to the logs.
         parameters.log();
@@ -139,6 +145,7 @@ impl Primary {
             /* handler */
             PrimaryReceiverHandler {
                 tx_primary_messages: tx_primary_messages.clone(),
+                tx_vote: tx_vote.clone(),
                 tx_cert_requests,
             },
         );
@@ -189,12 +196,13 @@ impl Primary {
         let signature_service = SignatureService::new(secret);
         let bls_signature_service = BlsSignatureService::new(bls_secret);
         let sorted_keys = Arc::new(sorted_keys);
+        let (tx_certs, rx_certs) = channel(CHANNEL_CAPACITY);
         // The `Core` receives and handles headers, votes, and certificates from the other primaries.
         Core::spawn(
             name,
             Arc::new(committee.clone()),
             Arc::new(clan.clone()),
-            sorted_keys,
+            sorted_keys.clone(),
             Arc::new(combined_key),
             store.clone(),
             synchronizer,
@@ -202,20 +210,42 @@ impl Primary {
             bls_signature_service,
             consensus_round.clone(),
             parameters.gc_depth,
-            tx_primary_messages,
+            tx_primary_messages.clone(),
             /* rx_primaries */ rx_primary_messages,
             /* rx_header_waiter */ rx_headers_loopback,
             /* rx_certificate_waiter */ rx_certificates_loopback,
             /* rx_proposer */ rx_headers,
             rx_timeout,
             rx_no_vote_msg,
-            tx_consensus,
-            /* tx_proposer */ tx_parents,
+            tx_consensus.clone(),
+            /* tx_proposer */ tx_parents.clone(),
             tx_timeout_cert,
             tx_no_vote_cert,
             tx_consensus_header_msg,
+            tx_certs,
             leaders_per_round,
-            parameters.threadpool_size
+        );
+
+        let (tx_certificate, rx_certificate) = channel(CHANNEL_CAPACITY);
+
+        VoteProcessor::spawn(
+            Arc::new(committee.clone()),
+            Arc::new(clan.clone()),
+            sorted_keys,
+            Arc::new(combined_key),
+            rx_vote,
+            tx_certificate,
+        );
+
+        CertificateHandler::spawn(
+            rx_certificate,
+            rx_certs,
+            tx_consensus,
+            tx_parents,
+            leaders_per_round,
+            parameters.gc_depth,
+            committee.clone(),
+            consensus_round.clone(),
         );
 
         // Keeps track of the latest consensus round and allows other tasks to clean up their their internal state
@@ -287,6 +317,7 @@ impl Primary {
 #[derive(Clone)]
 struct PrimaryReceiverHandler {
     tx_primary_messages: Sender<PrimaryMessage>,
+    tx_vote: Sender<Vote>,
     tx_cert_requests: Sender<(Vec<Digest>, PublicKey)>,
 }
 
@@ -303,6 +334,10 @@ impl MessageHandler for PrimaryReceiverHandler {
                 .send((missing, requestor))
                 .await
                 .expect("Failed to send primary message"),
+            PrimaryMessage::Vote(vote) => {
+                self.tx_vote.send(vote).await.expect("Faild to send vote")
+            }
+
             request => self
                 .tx_primary_messages
                 .send(request)

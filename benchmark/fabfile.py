@@ -24,16 +24,15 @@ def local(ctx, debug=False, consensus_only=False):
     }
     node_params = {
         'consensus_only': consensus_only,
-        'header_size': 512000,  # bytes
+        'header_size': 512,  # bytes
         'max_header_delay': 1_000,  # ms
         'gc_depth': 50,  # rounds
         'sync_retry_delay': 10_000,  # ms
         'sync_retry_nodes': 3,  # number of nodes
-        'batch_size': 512000,  # bytescd
+        'batch_size': 512,  # bytescd
         'tx_size': bench_params['tx_size'],
         'max_batch_delay': 200,  # ms
         'leaders_per_round': 7,
-        'threadpool_size': 2,
     }
     try:
         ret = LocalBench(bench_params, node_params).run(debug, consensus_only)
@@ -127,7 +126,6 @@ def remote(ctx, burst = 50, debug=False, consensus_only=True, header_size=512):
         'tx_size': bench_params['tx_size'],  # bytes
         'max_batch_delay': 200,  # ms
         'leaders_per_round': 67,
-        'threadpool_size': 4,
     }
     try:
         Bench(ctx).run(bench_params, node_params, debug, consensus_only)

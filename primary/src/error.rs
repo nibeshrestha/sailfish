@@ -59,4 +59,7 @@ pub enum DagError {
 
     #[error("Message {0} (round {1}) too old")]
     TooOld(Digest, Round),
+
+    #[error("Failed to send vote to processor")]
+    FailedToSend,
 }
