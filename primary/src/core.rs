@@ -1,7 +1,5 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::aggregators::{
-    CertificatesAggregator, NoVoteAggregator, TimeoutAggregator, VotesAggregator,
-};
+use crate::aggregators::{CertificatesAggregator, NoVoteAggregator, TimeoutAggregator};
 use crate::error::{DagError, DagResult};
 use crate::messages::{
     Certificate, HeaderInfo, HeaderInfoWithCertificate, HeaderWithCertificate, NoVoteCert,
@@ -10,12 +8,10 @@ use crate::messages::{
 use crate::primary::{ConsensusMessage, HeaderMessage, HeaderType, PrimaryMessage, Round};
 use crate::synchronizer::Synchronizer;
 use async_recursion::async_recursion;
-use blsttc::PublicKeyShareG2;
 use bytes::Bytes;
 use config::{Clan, Committee};
 use crypto::{BlsSignatureService, Hash as _};
 use crypto::{Digest, PublicKey, SignatureService};
-use futures::TryFutureExt;
 use log::{debug, error, info, warn};
 use network::{CancelHandler, ReliableSender};
 use std::collections::{HashMap, HashSet};
@@ -35,10 +31,6 @@ pub struct Core {
     committee: Arc<Committee>,
     /// The clan information.
     clan: Arc<Clan>,
-    /// The vector of sorted keys.
-    sorted_keys: Arc<Vec<PublicKeyShareG2>>,
-    /// The combined public key.
-    combined_pubkey: Arc<PublicKeyShareG2>,
     /// The persistent storage.
     store: Store,
     /// Handles synchronization with other nodes and our workers.
@@ -107,8 +99,6 @@ impl Core {
         name: PublicKey,
         committee: Arc<Committee>,
         clan: Arc<Clan>,
-        sorted_keys: Arc<Vec<PublicKeyShareG2>>,
-        combined_pubkey: Arc<PublicKeyShareG2>,
         store: Store,
         synchronizer: Synchronizer,
         signature_service: SignatureService,
@@ -136,8 +126,6 @@ impl Core {
                 name,
                 committee,
                 clan,
-                sorted_keys,
-                combined_pubkey,
                 store,
                 synchronizer,
                 signature_service,
@@ -524,7 +512,7 @@ impl Core {
         vote: &Vote,
         tx_primary: &Arc<Sender<PrimaryMessage>>,
     ) -> DagResult<()> {
-        debug!("Processing {:?}", vote);
+        // debug!("Processing {:?}", vote);
 
         // if !self.processing_vote_aggregators.contains_key(&vote.id) {
         //     self.processing_vote_aggregators

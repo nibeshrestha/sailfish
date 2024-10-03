@@ -1,6 +1,5 @@
-use crate::aggregators::VotesAggregator;
-use crate::certificate_handler::CertificateHandler;
 // Copyright(C) Facebook, Inc. and its affiliates.
+use crate::certificate_handler::CertificateHandler;
 use crate::certificate_waiter::CertificateWaiter;
 use crate::core::Core;
 use crate::error::DagError;
@@ -25,11 +24,9 @@ use futures::sink::SinkExt as _;
 use log::info;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::error::Error;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
-use std::sync::Mutex;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
@@ -202,8 +199,6 @@ impl Primary {
             name,
             Arc::new(committee.clone()),
             Arc::new(clan.clone()),
-            sorted_keys.clone(),
-            Arc::new(combined_key),
             store.clone(),
             synchronizer,
             signature_service.clone(),

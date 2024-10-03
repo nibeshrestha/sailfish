@@ -166,17 +166,14 @@ impl HeaderWaiter {
                         WaiterMessage::SyncParents(missing, header_type) => {
                             let id : Digest;
                             let round : Round;
-                            let author : PublicKey;
                             match header_type.clone() {
                                 HeaderType::Header(header) => {
-                                    id = header.id.clone();
+                                    id = header.id;
                                     round = header.round;
-                                    author = header.author;
                                 }
                                 HeaderType::HeaderInfo(header_info) => {
                                     id = header_info.id.clone();
                                     round = header_info.round;
-                                    author = header_info.author;
                                 }
                             }
                             debug!("Synching the parents of {}", id);
