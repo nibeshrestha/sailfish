@@ -73,6 +73,7 @@ pub struct Core {
     tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
     /// Send a the header that has voted for the prev leader to the `Consensus` logic.
     tx_consensus_header_msg: Sender<ConsensusMessage>,
+    tx_certs: Sender<Vec<Certificate>>,
     /// The last garbage collected round.
     gc_round: Round,
     /// The authors of the last voted headers.
@@ -80,7 +81,7 @@ pub struct Core {
     /// For storing info of header infos in processing
     processing_header_infos: HashMap<Digest, HeaderInfo>,
     /// For storing info of vote aggregators in processing
-    processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
+    //processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
     /// For storing info of processed certificates
     processed_certs: HashMap<Round, HashSet<PublicKey>>,
     /// Aggregates certificates to use as parents for new headers.
@@ -122,6 +123,7 @@ impl Core {
         tx_timeout_cert: Sender<(TimeoutCert, Round)>,
         tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
         tx_consensus_header_msg: Sender<ConsensusMessage>,
+        tx_certs: Sender<Vec<Certificate>>,
         leaders_per_round: usize,
     ) {
         tokio::spawn(async move {
@@ -148,10 +150,11 @@ impl Core {
                 tx_timeout_cert,
                 tx_no_vote_cert,
                 tx_consensus_header_msg,
+                tx_certs,
                 gc_round: 0,
                 last_voted: HashMap::with_capacity(2 * gc_depth as usize),
                 processing_header_infos: HashMap::new(),
-                processing_vote_aggregators: HashMap::new(),
+                //processing_vote_aggregators: HashMap::new(),
                 certificates_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 processed_certs: HashMap::with_capacity(2 * gc_depth as usize),
                 network: ReliableSender::new(),
@@ -229,14 +232,11 @@ impl Core {
         // Reset the votes aggregator.
         let h_round = header_with_certificates.header.round;
         let parents = header_with_certificates.parents.clone();
-        let sorted_keys = Arc::clone(&self.sorted_keys);
+
         let header_info = HeaderInfo::create_from(&header_with_certificates.header);
         self.processing_header_infos
             .entry(header_info.id)
             .or_insert(header_info.clone());
-        self.processing_vote_aggregators
-            .entry(header_with_certificates.header.id)
-            .or_insert(VotesAggregator::new(sorted_keys, self.committee.size()));
 
         // Broadcast the new full header in a reliable manner to all other nodes.
         let addresses = self
@@ -315,13 +315,17 @@ impl Core {
         let header_info: HeaderInfo;
         match header_msg {
             HeaderMessage::HeaderWithCertificate(header_with_parents) => {
-                self.process_parent_certificates(&header_with_parents.parents)
-                    .await?;
+                let _ = self
+                    .tx_certs
+                    .send(header_with_parents.parents.clone())
+                    .await;
                 header_info = HeaderInfo::create_from(&header_with_parents.header);
             }
             HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
-                self.process_parent_certificates(&header_info_with_parents.parents)
-                    .await?;
+                let _ = self
+                    .tx_certs
+                    .send(header_info_with_parents.parents.clone())
+                    .await;
                 header_info = header_info_with_parents.header_info.clone();
             }
             HeaderMessage::Header(header) => {
@@ -336,12 +340,6 @@ impl Core {
         self.processing_header_infos
             .entry(header_info.id)
             .or_insert(header_info.clone());
-        self.processing_vote_aggregators
-            .entry(header_info.id)
-            .or_insert(VotesAggregator::new(
-                self.sorted_keys.clone(),
-                self.committee.size(),
-            ));
 
         // Check if we can vote for this header.
         if self
@@ -482,59 +480,59 @@ impl Core {
         vote: &Vote,
         tx_primary: &Arc<Sender<PrimaryMessage>>,
     ) -> DagResult<()> {
-        debug!("Processing {:?}", vote);
+        // debug!("Processing {:?}", vote);
 
-        if !self.processing_vote_aggregators.contains_key(&vote.id) {
-            self.processing_vote_aggregators
-                .entry(vote.id.clone())
-                .or_insert(VotesAggregator::new(
-                    self.sorted_keys.clone(),
-                    self.committee.size(),
-                ));
-        }
+        // if !self.processing_vote_aggregators.contains_key(&vote.id) {
+        //     self.processing_vote_aggregators
+        //         .entry(vote.id.clone())
+        //         .or_insert(VotesAggregator::new(
+        //             self.sorted_keys.clone(),
+        //             self.committee.size(),
+        //         ));
+        // }
 
-        // Add it to the votes' aggregator and try to make a new certificate.
-        if let Some(vote_aggregator) = self.processing_vote_aggregators.get_mut(&vote.id) {
-            // Add it to the votes' aggregator and try to make a new certificate.
-            if let Some(certificate) = vote_aggregator.append(&vote, &self.committee)? {
-                debug!("Assembled {:?}", certificate);
-                // self.processed_headers.insert(certificate.header_id.clone());
+        // // Add it to the votes' aggregator and try to make a new certificate.
+        // if let Some(vote_aggregator) = self.processing_vote_aggregators.get_mut(&vote.id) {
+        //     // Add it to the votes' aggregator and try to make a new certificate.
+        //     if let Some(certificate) = vote_aggregator.append(&vote, &self.committee)? {
+        //         debug!("Assembled {:?}", certificate);
+        //         // self.processed_headers.insert(certificate.header_id.clone());
 
-                // Broadcast the certificate.
-                // let addresses = self
-                //     .committee
-                //     .others_primaries(&self.name)
-                //     .iter()
-                //     .map(|(_, x)| x.primary_to_primary)
-                //     .collect();
-                // let bytes = bincode::serialize(&PrimaryMessage::Certificate(certificate.clone()))
-                //     .expect("Failed to serialize our own certificate");
-                // let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
-                // self.cancel_handlers
-                //     .entry(certificate.round())
-                //     .or_insert_with(Vec::new)
-                //     .extend(handlers);
+        //         // Broadcast the certificate.
+        //         // let addresses = self
+        //         //     .committee
+        //         //     .others_primaries(&self.name)
+        //         //     .iter()
+        //         //     .map(|(_, x)| x.primary_to_primary)
+        //         //     .collect();
+        //         // let bytes = bincode::serialize(&PrimaryMessage::Certificate(certificate.clone()))
+        //         //     .expect("Failed to serialize our own certificate");
+        //         // let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
+        //         // self.cancel_handlers
+        //         //     .entry(certificate.round())
+        //         //     .or_insert_with(Vec::new)
+        //         //     .extend(handlers);
 
-                // Process the new certificate.
-                let committee = Arc::clone(&self.committee);
-                let sorted_keys = Arc::clone(&self.sorted_keys);
-                let tx_primary = tx_primary.clone();
-                let combined_key = Arc::clone(&self.combined_pubkey);
+        //         // Process the new certificate.
+        //         let committee = Arc::clone(&self.committee);
+        //         let sorted_keys = Arc::clone(&self.sorted_keys);
+        //         let tx_primary = tx_primary.clone();
+        //         let combined_key = Arc::clone(&self.combined_pubkey);
 
-                tokio::task::spawn_blocking(move || {
-                    certificate
-                        .verify(&committee, &sorted_keys, &combined_key)
-                        .map_err(DagError::from)
-                        .unwrap();
-                    debug!(
-                        "Certificate verified for header {:?} round {:?}",
-                        certificate.header_id, certificate.round
-                    );
-                    let _ =
-                        tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
-                });
-            }
-        }
+        //         tokio::task::spawn_blocking(move || {
+        //             certificate
+        //                 .verify(&committee, &sorted_keys, &combined_key)
+        //                 .map_err(DagError::from)
+        //                 .unwrap();
+        //             debug!(
+        //                 "Certificate verified for header {:?} round {:?}",
+        //                 certificate.header_id, certificate.round
+        //             );
+        //             let _ =
+        //                 tx_primary.blocking_send(PrimaryMessage::VerifiedCertificate(certificate));
+        //         });
+        //     }
+        // }
 
         Ok(())
     }
@@ -743,12 +741,12 @@ impl Core {
                             }
 
                         },
-                        PrimaryMessage::Vote(vote) => {
-                            match self.sanitize_vote(&vote) {
-                                Ok(()) => self.process_vote(&vote, &sender_channel).await,
-                                error => error
-                            }
-                        },
+                        // PrimaryMessage::Vote(vote) => {
+                        //     match self.sanitize_vote(&vote) {
+                        //         Ok(()) => self.process_vote(&vote, &sender_channel).await,
+                        //         error => error
+                        //     }
+                        // },
                         PrimaryMessage::Certificate(certificate) => {
                             let res = self.sanitize_certificate(&certificate, &sender_channel);
                             res
