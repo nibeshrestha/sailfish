@@ -9,7 +9,7 @@ use crate::{
 use blsttc::PublicKeyShareG2;
 use config::{Clan, Committee};
 use crypto::Digest;
-use log::{debug, info};
+use log::debug;
 use tokio::sync::mpsc::{Receiver, Sender};
 /// A task dedicated to help other authorities by replying to their certificates requests.
 pub struct VoteProcessor {
@@ -64,8 +64,7 @@ impl VoteProcessor {
                 if let Some(certificate) =
                     vote_aggregator.append(&vote, &self.committee, &self.clan)?
                 {
-                    debug!("Assembled {:?}", certificate);
-                    info!(
+                    debug!(
                         "Assembled cert {:?} round {}",
                         certificate.header_id, certificate.round
                     );

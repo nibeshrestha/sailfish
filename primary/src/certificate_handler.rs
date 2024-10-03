@@ -5,7 +5,7 @@ use crate::primary::Round;
 use async_recursion::async_recursion;
 use config::Committee;
 use crypto::PublicKey;
-use log::{debug, info, warn};
+use log::{debug, warn};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{collections::HashMap, sync::Arc};

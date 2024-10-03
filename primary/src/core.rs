@@ -34,10 +34,6 @@ pub struct Core {
     committee: Arc<Committee>,
     /// The clan information.
     clan: Arc<Clan>,
-    /// The vector of sorted keys.
-    sorted_keys: Arc<Vec<PublicKeyShareG2>>,
-    /// The combined public key.
-    combined_pubkey: Arc<PublicKeyShareG2>,
     /// The persistent storage.
     store: Store,
     /// Handles synchronization with other nodes and our workers.
@@ -106,8 +102,6 @@ impl Core {
         name: PublicKey,
         committee: Arc<Committee>,
         clan: Arc<Clan>,
-        sorted_keys: Arc<Vec<PublicKeyShareG2>>,
-        combined_pubkey: Arc<PublicKeyShareG2>,
         store: Store,
         synchronizer: Synchronizer,
         signature_service: SignatureService,
@@ -134,8 +128,6 @@ impl Core {
                 name,
                 committee,
                 clan,
-                sorted_keys,
-                combined_pubkey,
                 store,
                 synchronizer,
                 signature_service,

@@ -170,7 +170,7 @@ impl Proposer {
 
         let mut payload = Vec::new();
         if self.consensus_only {
-            payload = vec![vec![0u8; self.tx_size]; (self.header_size / self.tx_size)];
+            payload = vec![vec![0u8; self.tx_size]; self.header_size / self.tx_size];
         } else {
             payload = self.txns.drain(..limit).collect();
         }

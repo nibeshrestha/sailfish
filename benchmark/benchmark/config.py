@@ -115,8 +115,6 @@ class Committee:
             else : 
                 clan_member=False
 
-
-
             json['authorities'][name] = {
                 # Corresponds to the determination of faulty nodes in primary_addresses.
                 'bls_pubkey_g2': bls_pubkeys_g2[i],

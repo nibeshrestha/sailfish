@@ -199,8 +199,6 @@ impl Primary {
             name,
             Arc::new(committee.clone()),
             Arc::new(clan.clone()),
-            sorted_keys.clone(),
-            Arc::new(combined_key),
             store.clone(),
             synchronizer,
             signature_service.clone(),
