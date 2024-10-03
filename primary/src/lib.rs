@@ -3,6 +3,7 @@
 mod error;
 mod aggregators;
 mod batch_maker;
+mod certificate_handler;
 mod certificate_waiter;
 mod core;
 mod garbage_collector;
@@ -13,6 +14,7 @@ mod payload_receiver;
 mod primary;
 mod proposer;
 mod synchronizer;
+mod vote_processor;
 mod worker;
 
 #[cfg(test)]
