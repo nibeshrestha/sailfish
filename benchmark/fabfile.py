@@ -10,7 +10,7 @@ from benchmark.remote import Bench, BenchError
 
 
 @task
-def local(ctx, debug=False, consensus_only=True):
+def local(ctx, debug=False, consensus_only=True, header_size=512):
     ''' Run benchmarks on localhost '''
     bench_params = {
         'faults': 0,
@@ -23,12 +23,12 @@ def local(ctx, debug=False, consensus_only=True):
     }
     node_params = {
         'consensus_only': consensus_only,
-        'header_size': 51200,  # bytes
+        'header_size': header_size,  # bytes
         'max_header_delay': 1_000,  # ms
         'gc_depth': 50,  # rounds
         'sync_retry_delay': 10_000,  # ms
         'sync_retry_nodes': 3,  # number of nodes
-        'batch_size': 50_000,  # bytescd
+        'batch_size': header_size,  # bytescd
         'tx_size': bench_params['tx_size'],
         'max_batch_delay': 200,  # ms
         'leaders_per_round': 7
@@ -41,7 +41,7 @@ def local(ctx, debug=False, consensus_only=True):
 
 
 @task
-def create(ctx, nodes=1):
+def create(ctx, nodes=2):
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
@@ -95,34 +95,35 @@ def install(ctx):
 
 
 @task
-def remote(ctx, burst = 50, debug=False, consensus_only=True):
+def remote(ctx, burst = 50, debug=False, consensus_only=False, header_size=512):
     ''' Run benchmarks on GCP '''
     bench_params = {
         'faults': 0,
-        'nodes': 10,
+        'nodes': 100,
         'workers': 1,
         'collocate': True,
         'rate': [100000],
         'tx_size': 512,
-        'duration': 180,
+        'duration': 60,
         'runs': 1,
         'burst' : [burst],
-    } 
+    }
 
     nodes = bench_params['nodes']
     rate =  1000 * nodes * 20
     bench_params['rate'] = [rate]
 
     node_params = {
-        'header_size': 512000,  # bytes
+        'consensus_only': consensus_only,
+        'header_size': header_size,  # bytes
         'max_header_delay': 5_000,  # ms
         'gc_depth': 50,  # rounds
         'sync_retry_delay': 10_000,  # ms
         'sync_retry_nodes': 3,  # number of nodes
-        'batch_size': 512_000,
+        'batch_size': header_size,
         'tx_size': bench_params['tx_size'],  # bytes
         'max_batch_delay': 200,  # ms
-        'leaders_per_round': 7,
+        'leaders_per_round': 67
     }
     try:
         Bench(ctx).run(bench_params, node_params, debug, consensus_only)

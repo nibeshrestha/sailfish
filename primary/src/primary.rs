@@ -196,8 +196,6 @@ impl Primary {
         Core::spawn(
             name,
             Arc::new(committee.clone()),
-            sorted_keys.clone(),
-            Arc::new(combined_key),
             store.clone(),
             synchronizer,
             signature_service.clone(),

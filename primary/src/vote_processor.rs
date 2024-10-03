@@ -1,5 +1,3 @@
-use std::{collections::HashMap, sync::Arc};
-// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::{
     aggregators::VotesAggregator,
     error::{DagError, DagResult},
@@ -9,7 +7,8 @@ use crate::{
 use blsttc::PublicKeyShareG2;
 use config::Committee;
 use crypto::Digest;
-use log::{debug, info};
+use log::debug;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc::{Receiver, Sender};
 /// A task dedicated to help other authorities by replying to their certificates requests.
 pub struct VoteProcessor {
@@ -21,6 +20,7 @@ pub struct VoteProcessor {
     tx_cert_handler: Sender<Certificate>,
     processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
 }
+
 impl VoteProcessor {
     pub fn spawn(
         committee: Arc<Committee>,
@@ -43,10 +43,12 @@ impl VoteProcessor {
             .unwrap();
         });
     }
+
     async fn run(&mut self) -> DagResult<()> {
         let tx_cert_handler = Arc::new(self.tx_cert_handler.clone());
         while let Some(vote) = self.rx_vote.recv().await {
             debug!("Processing {:?}", vote);
+
             if !self.processing_vote_aggregators.contains_key(&vote.id) {
                 self.processing_vote_aggregators
                     .entry(vote.id)
@@ -55,12 +57,12 @@ impl VoteProcessor {
                         self.committee.size(),
                     ));
             }
+
             // Add it to the votes' aggregator and try to make a new certificate.
             if let Some(vote_aggregator) = self.processing_vote_aggregators.get_mut(&vote.id) {
                 // Add it to the votes' aggregator and try to make a new certificate.
                 if let Some(certificate) = vote_aggregator.append(&vote, &self.committee)? {
-                    debug!("Assembled {:?}", certificate);
-                    info!(
+                    debug!(
                         "Assembled cert {:?} round {}",
                         certificate.header_id, certificate.round
                     );
@@ -68,6 +70,7 @@ impl VoteProcessor {
                     let sorted_keys = Arc::clone(&self.sorted_keys);
                     let tx_cert_handler = Arc::clone(&tx_cert_handler);
                     let combined_key = Arc::clone(&self.combined_pubkey);
+
                     tokio::task::spawn_blocking(move || {
                         certificate
                             .verify(&committee, &sorted_keys, &combined_key)

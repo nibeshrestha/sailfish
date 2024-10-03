@@ -1,7 +1,5 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::aggregators::{
-    CertificatesAggregator, NoVoteAggregator, TimeoutAggregator, VotesAggregator,
-};
+use crate::aggregators::{CertificatesAggregator, NoVoteAggregator, TimeoutAggregator};
 use crate::error::{DagError, DagResult};
 use crate::messages::{
     Certificate, HeaderInfoWithCertificate, HeaderWithCertificate, NoVoteCert, NoVoteMsg, Timeout,
@@ -11,7 +9,6 @@ use crate::primary::{HeaderType, PrimaryMessage, Round};
 use crate::synchronizer::Synchronizer;
 use crate::{ConsensusMessage, HeaderInfo, HeaderMessage};
 use async_recursion::async_recursion;
-use blsttc::PublicKeyShareG2;
 use bytes::Bytes;
 use config::Committee;
 use crypto::{BlsSignatureService, Hash as _};
@@ -33,10 +30,6 @@ pub struct Core {
     name: PublicKey,
     /// The committee information.
     committee: Arc<Committee>,
-    /// The vector of sorted keys.
-    sorted_keys: Arc<Vec<PublicKeyShareG2>>,
-    /// The combined public key.
-    combined_pubkey: Arc<PublicKeyShareG2>,
     /// The persistent storage.
     store: Store,
     /// Handles synchronization with other nodes and our workers.
@@ -103,8 +96,6 @@ impl Core {
     pub fn spawn(
         name: PublicKey,
         committee: Arc<Committee>,
-        sorted_keys: Arc<Vec<PublicKeyShareG2>>,
-        combined_pubkey: Arc<PublicKeyShareG2>,
         store: Store,
         synchronizer: Synchronizer,
         signature_service: SignatureService,
@@ -130,8 +121,6 @@ impl Core {
             Self {
                 name,
                 committee,
-                sorted_keys,
-                combined_pubkey,
                 store,
                 synchronizer,
                 signature_service,
@@ -725,14 +714,12 @@ impl Core {
                                 Ok(()) => self.process_header_msg(&header_msg, &sender_channel).await,
                                 error => error
                             }
-
                         },
                         PrimaryMessage::Timeout(timeout) => {
                             match self.sanitize_timeout(&timeout) {
                                 Ok(()) => self.process_timeout(timeout).await,
                                 error => error
                             }
-
                         },
                         PrimaryMessage::NoVoteMsg(no_vote_msg) => {
                             match self.sanitize_no_vote_msg(&no_vote_msg) {
