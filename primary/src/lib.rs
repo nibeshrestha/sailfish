@@ -10,7 +10,6 @@ mod garbage_collector;
 mod header_waiter;
 mod helper;
 mod messages;
-mod payload_receiver;
 mod primary;
 mod proposer;
 mod synchronizer;
