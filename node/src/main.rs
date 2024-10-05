@@ -114,11 +114,11 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
 
     //fetching committee
     let comm = Comm::import(committee_file).context("Failed to load the committee information")?;
+    let my_clan_id: usize = comm.authorities.get(&name).unwrap().clan_id;
 
-    let committee = Committee::new(comm.authorities);
-    //fetching clan
-    let my_clan_id = committee.authorities.get(&name).unwrap().clan_id;
-    let clan = Clan::create_clan_from_committee(&committee, my_clan_id)
+    let committee = Committee::new(comm.authorities, &name, my_clan_id);
+    //fetching clanmy_clan_id
+    let clan = Clan::create_clan_from_committee(&committee, my_clan_id, &name)
         .context("Failed to load the clan information")?;
 
     let mut sorted_keys = committee.get_bls_public_keys();

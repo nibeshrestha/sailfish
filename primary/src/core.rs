@@ -229,20 +229,8 @@ impl Core {
 
         let header_info = HeaderInfo::create_from(&header_with_parents.header);
 
-        // self.processing_header_infos
-        //     .entry(header_info.id)
-        //     .or_insert(header_info.clone());
-
         // Broadcast the new header in a reliable manner to clan members.
-        let addresses = self
-            .clan
-            .only_my_clan_other_primaries(
-                &self.name,
-                self.clan.members.get(&self.name).unwrap().clan_id,
-            )
-            .iter()
-            .map(|(_, x)| x.primary_to_primary)
-            .collect();
+        let addresses = self.clan.clan_other_primaries.clone();
 
         let header_msg = HeaderMessage::HeaderWithCertificate(header_with_parents);
         let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(header_msg))
@@ -265,15 +253,7 @@ impl Core {
         let bytes = bincode::serialize(&PrimaryMessage::HeaderMsg(header_info_msg.clone()))
             .expect("Failed to serialize our own header info");
 
-        let addresses = self
-            .committee
-            .others_primaries_not_in_my_clan(
-                &self.name,
-                self.clan.members.get(&self.name).unwrap().clan_id,
-            )
-            .iter()
-            .map(|(_, x)| x.primary_to_primary)
-            .collect();
+        let addresses = self.committee.non_clan_other_primaries.clone();
 
         let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
         self.cancel_handlers
@@ -333,12 +313,7 @@ impl Core {
             )
             .await;
 
-            let addresses = self
-                .committee
-                .others_primaries(&self.name)
-                .iter()
-                .map(|(_, x)| x.primary_to_primary)
-                .collect();
+            let addresses = self.committee.other_primaries_addr.clone();
             let bytes = bincode::serialize(&PrimaryMessage::Vote(vote.clone()))
                 .expect("Failed to serialize our own vote");
             let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;

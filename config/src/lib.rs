@@ -170,15 +170,35 @@ impl Import for Comm {}
 pub struct Committee {
     pub authorities: BTreeMap<PublicKey, Authority>,
     pub sorted_keys: Vec<PublicKey>,
+    pub non_clan_other_primaries: Vec<SocketAddr>,
+    pub other_primaries_addr: Vec<SocketAddr>,
 }
 
 impl Committee {
-    pub fn new(authorities: BTreeMap<PublicKey, Authority>) -> Committee {
+    pub fn new(
+        authorities: BTreeMap<PublicKey, Authority>,
+        myself: &PublicKey,
+        clan_id: usize,
+    ) -> Committee {
         let mut keys: Vec<_> = authorities.keys().cloned().collect();
         keys.sort();
+
+        let non_clan_other_primaries = authorities
+            .iter()
+            .filter(|(name, authmem)| name != &myself && authmem.clan_id != clan_id)
+            .map(|(_, authority)| (authority.primary.primary_to_primary))
+            .collect();
+        let other_primaries_addr = authorities
+            .iter()
+            .filter(|(name, _)| name != &myself)
+            .map(|(_, authority)| authority.primary.primary_to_primary)
+            .collect();
+
         let committee = Self {
             authorities,
             sorted_keys: keys,
+            non_clan_other_primaries,
+            other_primaries_addr,
         };
         committee
     }
@@ -357,6 +377,8 @@ pub struct ClanMember {
 #[derive(Clone, Deserialize)]
 pub struct Clan {
     pub members: BTreeMap<PublicKey, ClanMember>,
+    pub total_votes: u32,
+    pub clan_other_primaries: Vec<SocketAddr>,
 }
 
 impl Import for Clan {}
@@ -365,6 +387,7 @@ impl Clan {
     pub fn create_clan_from_committee(
         committee: &Committee,
         clan_id: usize,
+        myself: &PublicKey,
     ) -> Result<Self, ConfigError> {
         let mut clan_members = BTreeMap::new();
 
@@ -382,8 +405,17 @@ impl Clan {
             }
         }
 
+        let total_votes = clan_members.values().map(|x| x.stake).sum();
+        let clan_other_primaries = clan_members
+            .iter()
+            .filter(|(name, clanmem)| name != &myself && clanmem.clan_id == clan_id)
+            .map(|(_, clan_member)| clan_member.primary.primary_to_primary)
+            .collect();
+
         Ok(Clan {
             members: clan_members,
+            total_votes,
+            clan_other_primaries,
         })
     }
 
@@ -413,16 +445,14 @@ impl Clan {
     pub fn quorum_threshold(&self) -> Stake {
         // If N = 3f + 1 + k (0 <= k < 3)
         // then (2 N + 3) / 3 = 2f + 1 + (2k + 2)/3 = 2f + 1 + k = N - f
-        let total_votes: Stake = self.members.values().map(|x| x.stake).sum();
-        2 * total_votes / 3 + 1
+        2 * self.total_votes / 3 + 1
     }
 
     /// Returns the stake required to reach availability (f+1).
     pub fn validity_threshold(&self) -> Stake {
         // If N = 3f + 1 + k (0 <= k < 3)
         // then (N + 2) / 3 = f + 1 + k/3 = f + 1
-        let total_votes: Stake = self.members.values().map(|x| x.stake).sum();
-        (total_votes + 2) / 3
+        (self.total_votes + 2) / 3
     }
 
     /// Returns the primary addresses of the target primary.
@@ -500,6 +530,7 @@ impl Clan {
             .map(|(name, _)| (name.clone()))
             .collect()
     }
+
     pub fn get_bls_public_keys(&self) -> Vec<PublicKeyShareG2> {
         self.members.iter().map(|(_, x)| x.bls_pubkey_g2).collect()
     }
