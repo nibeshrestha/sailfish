@@ -101,7 +101,6 @@ impl CertificateHandler {
                     }
                     Ok(())
                 }
-                // Some(certificate) = self.rx_certificate_waiter.recv() => self.process_certificate(certificate).await,
             };
             // Cleanup internal state.
             let round = self.consensus_round.load(Ordering::Relaxed);

@@ -1,5 +1,4 @@
 use crate::certificate_handler::CertificateHandler;
-// Copyright(C) Facebook, Inc. and its affiliates.
 use crate::certificate_waiter::CertificateWaiter;
 use crate::core::Core;
 use crate::error::DagError;
@@ -219,6 +218,7 @@ impl Primary {
             tx_consensus_header_msg,
             tx_certs,
             leaders_per_round,
+            tx_vote,
         );
 
         VoteProcessor::spawn(

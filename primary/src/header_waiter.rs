@@ -1,6 +1,5 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
-use crate::messages::Header;
 use crate::primary::{HeaderMessage, HeaderType, PrimaryMessage, Round};
 use bytes::Bytes;
 use config::Committee;
@@ -10,7 +9,7 @@ use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
 use log::{debug, error};
 use network::SimpleSender;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -167,21 +166,17 @@ impl HeaderWaiter {
                         WaiterMessage::SyncParents(missing, header_type) => {
                             let id : Digest;
                             let round : Round;
-                            let author : PublicKey;
                             match header_type.clone() {
                                 HeaderType::Header(header) => {
                                     id = header.id;
                                     round = header.round;
-                                    author = header.author;
                                 }
                                 HeaderType::HeaderInfo(header_info) => {
                                     id = header_info.id;
                                     round = header_info.round;
-                                    author = header_info.author;
                                 }
                             }
                             debug!("Synching the parents of {}", id);
-
 
                             // Ensure we sync only once per header.
                             if self.pending.contains_key(&id) {
@@ -214,6 +209,7 @@ impl HeaderWaiter {
                                     (round, now)
                                 });
                             }
+
                             if !requires_sync.is_empty() {
                                 // let address = self.committee
                                 //     .primary(&author)

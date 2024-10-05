@@ -1,5 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
-// Copyright(C) Facebook, Inc. and its affiliates.
+
 use crate::{
     aggregators::VotesAggregator,
     error::{DagError, DagResult},
