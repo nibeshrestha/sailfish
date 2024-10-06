@@ -339,7 +339,7 @@ impl Core {
                 .get_parents(&HeaderType::HeaderInfo(header_info.clone()))
                 .await?;
             if parents.is_empty() {
-                info!("Processing of {} suspended: missing parent(s)", header_info.id);
+                debug!("Processing of {} suspended: missing parent(s)", header_info.id);
                 return Ok(());
             }
         }
