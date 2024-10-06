@@ -292,7 +292,7 @@ impl Core {
                 header_info = h_info.clone();
             }
         }
-        info!("received header {:?} round {}", header_info.id, header_info.round);
+        debug!("received header {:?} round {}", header_info.id, header_info.round);
 
 
         // Indicate that we are processing this header.
