@@ -292,7 +292,7 @@ impl Core {
                 header_info = h_info.clone();
             }
         }
-        // info!("received header {:?} round {}", header_info.id, header_info.round);
+        info!("received header {:?} round {}", header_info.id, header_info.round);
 
 
         // Indicate that we are processing this header.
@@ -339,7 +339,7 @@ impl Core {
                 .get_parents(&HeaderType::HeaderInfo(header_info.clone()))
                 .await?;
             if parents.is_empty() {
-                debug!("Processing of {} suspended: missing parent(s)", header_info.id);
+                info!("Processing of {} suspended: missing parent(s)", header_info.id);
                 return Ok(());
             }
         }
