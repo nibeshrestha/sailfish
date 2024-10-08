@@ -119,7 +119,13 @@ impl Primary {
         let (tx_certificates_loopback, rx_certificates_loopback) = channel(CHANNEL_CAPACITY);
         let (tx_primary_messages, rx_primary_messages) = channel(CHANNEL_CAPACITY);
         let (tx_cert_requests, rx_cert_requests) = channel(CHANNEL_CAPACITY);
-        let (tx_vote, rx_vote) = channel(CHANNEL_CAPACITY);
+        
+        //vote processor channels
+        let (tx_vote_1, rx_vote_1) = channel(CHANNEL_CAPACITY);
+        let (tx_vote_2, rx_vote_2) = channel(CHANNEL_CAPACITY);
+        let (tx_vote_3, rx_vote_3) = channel(CHANNEL_CAPACITY);
+        let (tx_vote_4, rx_vote_4) = channel(CHANNEL_CAPACITY);
+        let tx_vote_channels = vec![tx_vote_1,tx_vote_2,tx_vote_3,tx_vote_4];
 
         // Write the parameters to the logs.
         parameters.log();
@@ -145,7 +151,7 @@ impl Primary {
             /* handler */
             PrimaryReceiverHandler {
                 tx_primary_messages: tx_primary_messages.clone(),
-                tx_vote: tx_vote.clone(),
+                tx_vote_channels: tx_vote_channels.clone(),
                 tx_cert_requests,
             },
         );
@@ -228,12 +234,39 @@ impl Primary {
 
         let (tx_certificate, rx_certificate) = channel(CHANNEL_CAPACITY);
 
-        VoteProcessor::spawn(
+        let _vp1 = VoteProcessor::spawn(
+            Arc::new(committee.clone()),
+            Arc::new(clan.clone()),
+            sorted_keys.clone(),
+            Arc::new(combined_key),
+            rx_vote_1,
+            tx_certificate.clone(),
+        );
+
+        let _vp2 = VoteProcessor::spawn(
+            Arc::new(committee.clone()),
+            Arc::new(clan.clone()),
+            sorted_keys.clone(),
+            Arc::new(combined_key),
+            rx_vote_2,
+            tx_certificate.clone(),
+        );
+
+        let _vp3 = VoteProcessor::spawn(
+            Arc::new(committee.clone()),
+            Arc::new(clan.clone()),
+            sorted_keys.clone(),
+            Arc::new(combined_key),
+            rx_vote_3,
+            tx_certificate.clone(),
+        );
+        
+        let _vp4 = VoteProcessor::spawn(
             Arc::new(committee.clone()),
             Arc::new(clan.clone()),
             sorted_keys,
             Arc::new(combined_key),
-            rx_vote,
+            rx_vote_4,
             tx_certificate,
         );
 
@@ -317,7 +350,7 @@ impl Primary {
 #[derive(Clone)]
 struct PrimaryReceiverHandler {
     tx_primary_messages: Sender<PrimaryMessage>,
-    tx_vote: Sender<Vote>,
+    tx_vote_channels: Vec<Sender<Vote>>,
     tx_cert_requests: Sender<(Vec<Digest>, PublicKey)>,
 }
 
@@ -335,7 +368,16 @@ impl MessageHandler for PrimaryReceiverHandler {
                 .await
                 .expect("Failed to send primary message"),
             PrimaryMessage::Vote(vote) => {
-                self.tx_vote.send(vote).await.expect("Faild to send vote")
+                //reading last byte from digest to read last two bits.
+                let last_two_bits = vote.id.0[31] & 0b11;
+                
+                match last_two_bits {
+                    0b00 => self.tx_vote_channels[0].send(vote).await.expect("Faild to send vote"),
+                    0b01 => self.tx_vote_channels[1].send(vote).await.expect("Faild to send vote"),
+                    0b10 => self.tx_vote_channels[2].send(vote).await.expect("Faild to send vote"),
+                    0b11 => self.tx_vote_channels[3].send(vote).await.expect("Faild to send vote"),
+                    _ => {}
+                }
             }
 
             request => self
