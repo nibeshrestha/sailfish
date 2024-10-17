@@ -3,26 +3,31 @@ use crate::aggregators::{
     CertificatesAggregator, NoVoteAggregator, TimeoutAggregator, VotesAggregator,
 };
 use crate::error::{DagError, DagResult};
+use crate::header_msg_processor::HeaderMsgProcessor;
 use crate::messages::{
     Certificate, HeaderInfo, HeaderInfoWithCertificate, HeaderWithCertificate, NoVoteCert,
     NoVoteMsg, Timeout, TimeoutCert, Vote,
 };
 use crate::primary::{ConsensusMessage, HeaderMessage, HeaderType, PrimaryMessage, Round};
 use crate::synchronizer::Synchronizer;
+use crate::vote_processor::VoteProcessor;
 use async_recursion::async_recursion;
 use blsttc::PublicKeyShareG2;
 use bytes::Bytes;
 use config::{Clan, Committee};
 use crypto::{BlsSignatureService, Hash as _};
 use crypto::{Digest, PublicKey, SignatureService};
-use futures::TryFutureExt;
+use futures::stream::FuturesUnordered;
+use futures::{StreamExt, TryFutureExt};
 use log::{debug, error, info, warn};
 use network::{CancelHandler, ReliableSender};
+use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use store::Store;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::{runtime::Handle,sync::mpsc::{Receiver, Sender}};
+use bounded_executor::BoundedExecutor;
 
 // #[cfg(test)]
 // #[path = "tests/core_tests.rs"]
@@ -79,11 +84,11 @@ pub struct Core {
     /// The last garbage collected round.
     gc_round: Round,
     /// The authors of the last voted headers.
-    last_voted: HashMap<Round, HashSet<PublicKey>>,
+    last_voted: Arc<RwLock<HashMap<Round, HashSet<PublicKey>>>>,
     /// For storing info of header infos in processing
-    processing_header_infos: HashMap<Digest, HeaderInfo>,
+    processing_header_infos: Arc<RwLock<HashMap<Digest, HeaderInfo>>>,
     /// For storing info of vote aggregators in processing
-    // processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
+    processing_vote_aggregators: Arc<RwLock<HashMap<Digest, VotesAggregator>>>,
     /// For storing info of processed certificates
     processed_certs: HashMap<Round, HashSet<PublicKey>>,
     /// Aggregates certificates to use as parents for new headers.
@@ -99,6 +104,8 @@ pub struct Core {
     /// Numbers of leader per round
     leaders_per_round: usize,
     tx_certs: Sender<Vec<Certificate>>,
+    vote_processor: Arc<VoteProcessor>,
+    header_msg_processor: Arc<HeaderMsgProcessor>,
 }
 
 impl Core {
@@ -129,6 +136,8 @@ impl Core {
         tx_consensus_header_msg: Sender<ConsensusMessage>,
         tx_certs: Sender<Vec<Certificate>>,
         leaders_per_round: usize,
+        vote_processor: Arc<VoteProcessor>,
+        header_msg_processor: Arc<HeaderMsgProcessor>,
     ) {
         // let pool = ThreadPoolBuilder::new().num_threads(threadpool_size).build().unwrap();
         tokio::spawn(async move {
@@ -158,9 +167,9 @@ impl Core {
                 tx_consensus_header_msg,
                 // tx_vote,
                 gc_round: 0,
-                last_voted: HashMap::with_capacity(2 * gc_depth as usize),
-                processing_header_infos: HashMap::new(),
-                // processing_vote_aggregators: HashMap::new(),
+                last_voted: Arc::new(RwLock::new(HashMap::with_capacity(2 * gc_depth as usize))),
+                processing_header_infos: Arc::new(RwLock::new(HashMap::new())),
+                processing_vote_aggregators : Arc::new(RwLock::new(HashMap::new())),
                 processed_certs: HashMap::with_capacity(2 * gc_depth as usize),
                 certificates_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 network: ReliableSender::new(),
@@ -169,6 +178,8 @@ impl Core {
                 no_vote_aggregators: HashMap::with_capacity(2 * gc_depth as usize),
                 tx_certs,
                 leaders_per_round,
+                vote_processor,
+                header_msg_processor,
             }
             .run()
             .await;
@@ -242,7 +253,7 @@ impl Core {
 
         let header_info = HeaderInfo::create_from(&header_with_certificates.header);
 
-        self.processing_header_infos
+        self.processing_header_infos.write().unwrap()
             .entry(header_info.id)
             .or_insert(header_info.clone());
 
@@ -292,7 +303,10 @@ impl Core {
             .extend(handlers);
 
         // Process the header.
-        self.process_header_msg(&header_info_msg, tx_primary).await
+        // self.process_header_msg(&header_info_msg, tx_primary).await
+
+        let _ = self.tx_primary.send(PrimaryMessage::HeaderMsg(header_info_msg)).await;
+        Ok(())
     }
 
     async fn process_parent_certificates(
@@ -335,118 +349,120 @@ impl Core {
         Ok(())
     }
 
-    #[async_recursion]
-    async fn process_header_msg(
-        &mut self,
-        header_msg: &HeaderMessage,
-        tx_primary: &Arc<Sender<PrimaryMessage>>,
-    ) -> DagResult<()> {
-        debug!("Processing {:?}", header_msg);
-        let header_info: HeaderInfo;
+    // #[async_recursion]
+    // async fn process_header_msg(
+    //     &mut self,
+    //     header_msg: &HeaderMessage,
+    //     tx_primary: &Arc<Sender<PrimaryMessage>>,
+    // ) -> DagResult<()> {
 
-        match header_msg {
-            HeaderMessage::HeaderWithCertificate(header_with_parents) => {
-                let _ = self
-                    .tx_certs
-                    .send(header_with_parents.parents.clone())
-                    .await;
-                // self.process_parent_certificates(&header_with_parents.parents)
-                // .await?;
-                header_info = HeaderInfo::create_from(&header_with_parents.header);
-            }
-            HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
-                // self.process_parent_certificates(&header_info_with_parents.parents)
-                //     .await?;
-                let _ = self
-                    .tx_certs
-                    .send(header_info_with_parents.parents.clone())
-                    .await;
-                header_info = header_info_with_parents.header_info.clone();
-            }
-            HeaderMessage::Header(header) => {
-                header_info = HeaderInfo::create_from(&header);
-            }
-            HeaderMessage::HeaderInfo(h_info) => {
-                header_info = h_info.clone();
-            }
-        }
-        info!(
-            "received header {:?} round {}",
-            header_info.id, header_info.round
-        );
+    //     debug!("Processing {:?}", header_msg);
+    //     let header_info: HeaderInfo;
 
-        // Indicate that we are processing this header.
-        self.processing_header_infos
-            .entry(header_info.id)
-            .or_insert(header_info.clone());
+    //     match header_msg {
+    //         HeaderMessage::HeaderWithCertificate(header_with_parents) => {
+    //             let _ = self
+    //                 .tx_certs
+    //                 .send(header_with_parents.parents.clone())
+    //                 .await;
+    //             // self.process_parent_certificates(&header_with_parents.parents)
+    //             // .await?;
+    //             header_info = HeaderInfo::create_from(&header_with_parents.header);
+    //         }
+    //         HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
+    //             // self.process_parent_certificates(&header_info_with_parents.parents)
+    //             //     .await?;
+    //             let _ = self
+    //                 .tx_certs
+    //                 .send(header_info_with_parents.parents.clone())
+    //                 .await;
+    //             header_info = header_info_with_parents.header_info.clone();
+    //         }
+    //         HeaderMessage::Header(header) => {
+    //             header_info = HeaderInfo::create_from(&header);
+    //         }
+    //         HeaderMessage::HeaderInfo(h_info) => {
+    //             header_info = h_info.clone();
+    //         }
+    //     }
+    //     info!(
+    //         "received header {:?} round {}",
+    //         header_info.id, header_info.round
+    //     );
 
-        // Check if we can vote for this header.
-        if self
-            .last_voted
-            .entry(header_info.round)
-            .or_insert_with(HashSet::new)
-            .insert(header_info.author)
-        {
-            // Make a vote and send it to all nodes
-            let vote = Vote::new_for_header_info(
-                &header_info,
-                &self.name,
-                &mut self.bls_signature_service,
-            )
-            .await;
-            // debug!("Created {:?}", vote);
+    //     // Indicate that we are processing this header.
+    //     self.processing_header_infos.write().unwrap()
+    //         .entry(header_info.id)
+    //         .or_insert(header_info.clone());
 
-            let addresses = self
-                .committee
-                .others_primaries(&self.name)
-                .iter()
-                .map(|(_, x)| x.primary_to_primary)
-                .collect();
-            let bytes = bincode::serialize(&PrimaryMessage::Vote(vote.clone()))
-                .expect("Failed to serialize our own vote");
-            let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
-            self.cancel_handlers
-                .entry(header_info.round)
-                .or_insert_with(Vec::new)
-                .extend(handlers);
+    //     // Check if we can vote for this header.
+    //     if self
+    //         .last_voted.write().unwrap()
+    //         .entry(header_info.round)
+    //         .or_insert_with(HashSet::new)
+    //         .insert(header_info.author)
+    //     {
+    //         // Make a vote and send it to all nodes
+    //         let vote = Vote::new_for_header_info(
+    //             &header_info,
+    //             &self.name,
+    //             &mut self.bls_signature_service,
+    //         )
+    //         .await;
+    //         // debug!("Created {:?}", vote);
 
-            self.process_vote(&vote, tx_primary)
-                .await
-                .expect("Failed to process our own vote");
-        }
+    //         let addresses = self
+    //             .committee
+    //             .others_primaries(&self.name)
+    //             .iter()
+    //             .map(|(_, x)| x.primary_to_primary)
+    //             .collect();
+    //         let bytes = bincode::serialize(&PrimaryMessage::Vote(vote.clone()))
+    //             .expect("Failed to serialize our own vote");
+    //         let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
+    //         self.cancel_handlers
+    //             .entry(header_info.round)
+    //             .or_insert_with(Vec::new)
+    //             .extend(handlers);
 
-        // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
-        // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
-        // reschedule processing of this header.
+    //         self.process_vote(&vote, tx_primary)
+    //             .await
+    //             .expect("Failed to process our own vote");
 
-        if header_info.round != 1 {
-            let parents = self
-                .synchronizer
-                .get_parents(&HeaderType::HeaderInfo(header_info.clone()))
-                .await?;
-            if parents.is_empty() {
-                debug!(
-                    "Processing of {} suspended: missing parent(s)",
-                    header_info.id
-                );
-                return Ok(());
-            }
-        }
+    //     }
 
-        // Send header to consensus
-        self.tx_consensus_header_msg
-            .send(ConsensusMessage::HeaderInfo(header_info.clone()))
-            .await
-            .expect("Failed to send header to consensus");
+    //     // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
+    //     // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
+    //     // reschedule processing of this header.
 
-        let hid = header_info.id;
-        // Store the header.
-        let header_type = HeaderType::HeaderInfo(header_info);
-        let bytes = bincode::serialize(&header_type).expect("Failed to serialize header");
-        self.store.write(hid.to_vec(), bytes).await;
+    //     if header_info.round != 1 {
+    //         let parents = self
+    //             .synchronizer
+    //             .get_parents(&HeaderType::HeaderInfo(header_info.clone()))
+    //             .await?;
+    //         if parents.is_empty() {
+    //             debug!(
+    //                 "Processing of {} suspended: missing parent(s)",
+    //                 header_info.id
+    //             );
+    //             return Ok(());
+    //         }
+    //     }
 
-        Ok(())
-    }
+    //     // Send header to consensus
+    //     self.tx_consensus_header_msg
+    //         .send(ConsensusMessage::HeaderInfo(header_info.clone()))
+    //         .await
+    //         .expect("Failed to send header to consensus");
+
+    //     let hid = header_info.id;
+    //     // Store the header.
+    //     let header_type = HeaderType::HeaderInfo(header_info);
+    //     let bytes = bincode::serialize(&header_type).expect("Failed to serialize header");
+    //     self.store.write(hid.to_vec(), bytes).await;
+
+    //     Ok(())
+    // }
 
     #[async_recursion]
     async fn process_timeout(&mut self, timeout: Timeout) -> DagResult<()> {
@@ -720,7 +736,7 @@ impl Core {
     }
 
     fn sanitize_vote(&mut self, vote: &Vote) -> DagResult<()> {
-        if let Some(header_info) = self.processing_header_infos.get(&vote.id) {
+        if let Some(header_info) = self.processing_header_infos.read().unwrap().get(&vote.id) {
             ensure!(
                 header_info.round <= vote.round,
                 DagError::TooOld(vote.digest(), vote.round)
@@ -772,19 +788,43 @@ impl Core {
         Ok(())
     }
 
+    
+
     // Main loop listening to incoming messages.
     pub async fn run(&mut self) {
         let tx_primary = Arc::new(self.tx_primary.clone());
-        let sender_channel = tx_primary.clone();
+        let sender_channel = tx_primary.clone();    
 
-        loop {
+        let executor = BoundedExecutor::new(8, Handle::current());
+        let mut header_futures = FuturesUnordered::new();
+        let mut vote_futures = FuturesUnordered::new();
+        let mut my_vote_futures = FuturesUnordered::new();
+
+        
+        loop {  
             let result = tokio::select! {
                 // We receive here messages from other primaries.
                 Some(message) = self.rx_primaries.recv() => {
                     match message {
+                        // PrimaryMessage::HeaderMsg(header_msg) => {
+                        //     match self.sanitize_header_msg(&header_msg) {
+                        //         Ok(()) => self.process_header_msg(&header_msg, &sender_channel).await,
+                        //         error => error
+                        //     }
+
+                        // },
                         PrimaryMessage::HeaderMsg(header_msg) => {
                             match self.sanitize_header_msg(&header_msg) {
-                                Ok(()) => self.process_header_msg(&header_msg, &sender_channel).await,
+
+                                Ok(()) => {
+                                    let header_msg_processor = Arc::clone(&self.header_msg_processor);
+                                    let processing_header_infos = Arc::clone(&self.processing_header_infos);
+                                    let last_voted = Arc::clone(&self.last_voted);
+                                    let tx_primary = tx_primary.clone();
+                                    let f = executor.spawn(async move {header_msg_processor.process_header_msg(&header_msg, tx_primary, processing_header_infos,last_voted).await});
+                                    header_futures.push(f);
+                                    Ok(())
+                                }
                                 error => error
                             }
 
@@ -803,17 +843,47 @@ impl Core {
                             }
 
                         },
-                        // PrimaryMessage::Vote(vote) => {
-                        //     match self.sanitize_vote(&vote) {
-                        //         Ok(()) => {
-                        //             let _ = self.tx_vote.send(vote).await.unwrap();
-                        //             Ok(())
-                        //         },
-                        //         error => error,
+                        PrimaryMessage::Vote(vote) => {
+                            match self.sanitize_vote(&vote) {
+                                Ok(()) => {
+                                    let vote_processor = Arc::clone(&self.vote_processor);
+                                    let process_vote_aggregator = Arc::clone(&self.processing_vote_aggregators);
+                                    let f = executor.spawn(async move  {vote_processor.process_vote(vote, process_vote_aggregator).await});
+                                    vote_futures.push(f);
+                                    Ok(())
+                                },
+                                error => error,
 
-                        //     }
-                        // },
+                            }
+                        },
+                        PrimaryMessage::MyVote(vote) => {
+                            let addresses = self
+                                            .committee
+                                            .others_primaries(&self.name)
+                                            .iter()
+                                            .map(|(_, x)| x.primary_to_primary)
+                                            .collect();
+                            let bytes = bincode::serialize(&PrimaryMessage::Vote(vote.clone()))
+                                            .expect("Failed to serialize our own vote");
+                            let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
+                            self.cancel_handlers
+                                .entry(vote.round)
+                                .or_insert_with(Vec::new)
+                                .extend(handlers);
+
+                            match self.sanitize_vote(&vote) {
+                                Ok(()) => {
+                                    let vote_processor = Arc::clone(&self.vote_processor);
+                                    let process_vote_aggregator = Arc::clone(&self.processing_vote_aggregators);
+                                    let f = executor.spawn(async move  {vote_processor.process_vote(vote, process_vote_aggregator).await});
+                                    my_vote_futures.push(f);
+                                    Ok(())
+                                },
+                                error => error,
+                            }
+                        },
                         PrimaryMessage::Certificate(certificate) => {
+                            
                             let res = self.sanitize_certificate(&certificate, &sender_channel);
                             res
                         },
@@ -825,9 +895,38 @@ impl Core {
                     }
                 },
 
+                Some(status) = vote_futures.next() => {
+                    if let Ok(status) = status.await {
+                        status
+                    }else{
+                        Ok(())
+                    }
+                },
+
+                Some(status) = my_vote_futures.next() => {
+                    if let Ok(status) = status.await {
+                        status
+                    }else{
+                        Ok(())
+                    }
+                },
+
+                Some(status) = header_futures.next() => {
+                    if let Ok(status) = status.await {
+                        status
+                    }else{
+                        Ok(())
+                    }
+                },
+
                 // We receive here loopback headers from the `HeaderWaiter`. Those are headers for which we interrupted
                 // execution (we were missing some of their dependencies) and we are now ready to resume processing.
-                Some(header) = self.rx_header_waiter.recv() => self.process_header_msg(&header, &sender_channel).await,
+                // Some(header) = self.rx_header_waiter.recv() => self.process_header_msg(&header, &sender_channel).await,
+                // or
+                Some(header) = self.rx_header_waiter.recv() => {
+                    let  _ = self.tx_primary.send(PrimaryMessage::HeaderMsg(header)).await; 
+                    Ok(())
+                },
 
                 // We receive here loopback certificates from the `CertificateWaiter`. Those are certificates for which
                 // we interrupted execution (we were missing some of their ancestors) and we are now ready to resume
@@ -855,9 +954,8 @@ impl Core {
             let round = self.consensus_round.load(Ordering::Relaxed);
             if round > self.gc_depth {
                 let gc_round = round - self.gc_depth;
-                self.last_voted.retain(|k, _| k >= &gc_round);
-                self.processing_header_infos
-                    .retain(|_, h| &h.round >= &gc_round);
+                self.last_voted.write().unwrap().retain(|k, _| k >= &gc_round);
+                self.processing_header_infos.write().unwrap().retain(|_, h| &h.round >= &gc_round);
                 self.certificates_aggregators.retain(|k, _| k >= &gc_round);
                 self.cancel_handlers.retain(|k, _| k >= &gc_round);
                 self.gc_round = gc_round;

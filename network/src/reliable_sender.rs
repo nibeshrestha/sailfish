@@ -28,6 +28,7 @@ pub type CancelHandler = oneshot::Receiver<Bytes>;
 /// We communicate with our 'connections' through a dedicated channel kept by the HashMap called `connections`.
 /// This sender is 'reliable' in the sense that it keeps trying to re-transmit messages for which it didn't
 /// receive an ACK back (until they succeed or are canceled).
+#[derive(Clone)]
 pub struct ReliableSender {
     /// A map holding the channels to our connections.
     connections: HashMap<SocketAddr, Sender<InnerMessage>>,

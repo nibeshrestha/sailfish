@@ -357,7 +357,7 @@ impl Vote {
     pub async fn new_for_header_info(
         header_info: &HeaderInfo,
         author: &PublicKey,
-        bls_signature_service: &mut BlsSignatureService,
+        bls_signature_service: &BlsSignatureService,
     ) -> Self {
         let vote = Self {
             id: header_info.id.clone(),

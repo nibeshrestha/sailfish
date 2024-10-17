@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::{Arc, RwLock}};
 
 use crate::{
     aggregators::VotesAggregator,
@@ -12,51 +12,41 @@ use crypto::Digest;
 use log::{debug, info};
 use tokio::sync::mpsc::{Receiver, Sender};
 
-/// A task dedicated to help other authorities by replying to their certificates requests.
+
 pub struct VoteProcessor {
     /// The committee information.
     committee: Arc<Committee>,
     clan: Arc<Clan>,
     sorted_keys: Arc<Vec<PublicKeyShareG2>>,
     combined_pubkey: Arc<PublicKeyShareG2>,
-    rx_vote: Receiver<Vote>,
-    tx_primary: Sender<Certificate>,
-    processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
+    tx_primary: Arc<Sender<Certificate>>,
+    // processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
 }
 
 impl VoteProcessor {
-    pub fn spawn(
+    pub fn new(
         committee: Arc<Committee>,
         clan: Arc<Clan>,
         sorted_keys: Arc<Vec<PublicKeyShareG2>>,
         combined_pubkey: Arc<PublicKeyShareG2>,
-        rx_vote: Receiver<Vote>,
-        tx_primary: Sender<Certificate>,
-    ) {
-        tokio::spawn(async move {
+        tx_primary: Arc<Sender<Certificate>>,
+    ) -> Self{
+        
             Self {
                 committee,
                 clan,
                 sorted_keys,
                 combined_pubkey,
-                rx_vote,
                 tx_primary,
-                processing_vote_aggregators: HashMap::new(),
             }
-            .run()
-            .await
-            .unwrap();
-        });
     }
 
-    async fn run(&mut self) -> DagResult<()> {
-        let tx_primary = Arc::new(self.tx_primary.clone());
-        while let Some(vote) = self.rx_vote.recv().await {
+    pub async fn process_vote(&self, vote: Vote , processing_vote_aggregators: Arc<RwLock<HashMap<Digest, VotesAggregator>>>) -> DagResult<()> {
             debug!("Processing {:?}", vote);
 
-            if !self.processing_vote_aggregators.contains_key(&vote.id) {
-                self.processing_vote_aggregators
-                    .entry(vote.id)
+            if !processing_vote_aggregators.read().unwrap().contains_key(&vote.id) {
+                processing_vote_aggregators
+                    .write().unwrap().entry(vote.id)
                     .or_insert(VotesAggregator::new(
                         self.sorted_keys.clone(),
                         self.committee.size(),
@@ -64,7 +54,7 @@ impl VoteProcessor {
             }
 
             // Add it to the votes' aggregator and try to make a new certificate.
-            if let Some(vote_aggregator) = self.processing_vote_aggregators.get_mut(&vote.id) {
+            if let Some(vote_aggregator) = processing_vote_aggregators.write().unwrap().get_mut(&vote.id) {
                 // Add it to the votes' aggregator and try to make a new certificate.
                 if let Some(certificate) =
                     vote_aggregator.append(&vote, &self.committee, &self.clan)?
@@ -77,7 +67,7 @@ impl VoteProcessor {
                     // Process the new certificate.
                     let committee = Arc::clone(&self.committee);
                     let sorted_keys = Arc::clone(&self.sorted_keys);
-                    let tx_primary = Arc::clone(&tx_primary);
+                    let tx_primary = Arc::clone(&self.tx_primary);
                     let combined_key = Arc::clone(&self.combined_pubkey);
 
                     tokio::task::spawn_blocking(move || {
@@ -93,7 +83,6 @@ impl VoteProcessor {
                     });
                 }
             }
-        }
-        Ok(())
+            Ok(())
     }
 }

@@ -7,6 +7,7 @@ mod certificate_handler;
 mod certificate_waiter;
 mod core;
 mod garbage_collector;
+mod header_msg_processor;
 mod header_waiter;
 mod helper;
 mod messages;

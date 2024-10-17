@@ -5,6 +5,7 @@ use crate::certificate_waiter::CertificateWaiter;
 use crate::core::Core;
 use crate::error::DagError;
 use crate::garbage_collector::GarbageCollector;
+use crate::header_msg_processor::{self, HeaderMsgProcessor};
 use crate::header_waiter::HeaderWaiter;
 use crate::helper::Helper;
 use crate::messages::{
@@ -28,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::sync::Mutex;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -44,6 +45,7 @@ pub enum PrimaryMessage {
     HeaderMsg(HeaderMessage),
     Timeout(Timeout),
     NoVoteMsg(NoVoteMsg),
+    MyVote(Vote),
     Vote(Vote),
     Certificate(Certificate),
     VerifiedCertificate(Certificate),
@@ -119,13 +121,6 @@ impl Primary {
         let (tx_certificates_loopback, rx_certificates_loopback) = channel(CHANNEL_CAPACITY);
         let (tx_primary_messages, rx_primary_messages) = channel(CHANNEL_CAPACITY);
         let (tx_cert_requests, rx_cert_requests) = channel(CHANNEL_CAPACITY);
-        
-        //vote processor channels
-        let (tx_vote_1, rx_vote_1) = channel(CHANNEL_CAPACITY);
-        let (tx_vote_2, rx_vote_2) = channel(CHANNEL_CAPACITY);
-        let (tx_vote_3, rx_vote_3) = channel(CHANNEL_CAPACITY);
-        let (tx_vote_4, rx_vote_4) = channel(CHANNEL_CAPACITY);
-        let tx_vote_channels = vec![tx_vote_1,tx_vote_2,tx_vote_3,tx_vote_4];
 
         // Write the parameters to the logs.
         parameters.log();
@@ -151,7 +146,6 @@ impl Primary {
             /* handler */
             PrimaryReceiverHandler {
                 tx_primary_messages: tx_primary_messages.clone(),
-                tx_vote_channels: tx_vote_channels.clone(),
                 tx_cert_requests,
             },
         );
@@ -198,11 +192,37 @@ impl Primary {
             /* tx_certificate_waiter */ tx_sync_certificates,
         );
 
-        // The `SignatureService` is used to require signatures on specific digests.
         let signature_service = SignatureService::new(secret);
         let bls_signature_service = BlsSignatureService::new(bls_secret);
         let sorted_keys = Arc::new(sorted_keys);
         let (tx_certs, rx_certs) = channel(CHANNEL_CAPACITY);
+        let (tx_certificate, rx_certificate) = channel(CHANNEL_CAPACITY);
+
+        //vote processor
+        let vote_processor = VoteProcessor::new(
+            Arc::new(committee.clone()),
+            Arc::new(clan.clone()),
+            Arc::clone(&sorted_keys),
+            Arc::new(combined_key),
+            Arc::new(tx_certificate),
+        );
+
+        //header msg processor
+        let header_msg_processor = HeaderMsgProcessor::new(
+            name,
+            Arc::new(committee.clone()),
+            Arc::new(clan.clone()),
+            Arc::clone(&sorted_keys),
+            Arc::new(combined_key),
+            Arc::new(store.clone()), 
+            synchronizer.clone(),
+            bls_signature_service.clone(),
+            tx_certs.clone(),
+            tx_consensus_header_msg.clone(),
+            );
+
+        // The `SignatureService` is used to require signatures on specific digests.
+        
         // The `Core` receives and handles headers, votes, and certificates from the other primaries.
         Core::spawn(
             name,
@@ -230,44 +250,8 @@ impl Primary {
             tx_consensus_header_msg,
             tx_certs,
             leaders_per_round,
-        );
-
-        let (tx_certificate, rx_certificate) = channel(CHANNEL_CAPACITY);
-
-        let _vp1 = VoteProcessor::spawn(
-            Arc::new(committee.clone()),
-            Arc::new(clan.clone()),
-            sorted_keys.clone(),
-            Arc::new(combined_key),
-            rx_vote_1,
-            tx_certificate.clone(),
-        );
-
-        let _vp2 = VoteProcessor::spawn(
-            Arc::new(committee.clone()),
-            Arc::new(clan.clone()),
-            sorted_keys.clone(),
-            Arc::new(combined_key),
-            rx_vote_2,
-            tx_certificate.clone(),
-        );
-
-        let _vp3 = VoteProcessor::spawn(
-            Arc::new(committee.clone()),
-            Arc::new(clan.clone()),
-            sorted_keys.clone(),
-            Arc::new(combined_key),
-            rx_vote_3,
-            tx_certificate.clone(),
-        );
-        
-        let _vp4 = VoteProcessor::spawn(
-            Arc::new(committee.clone()),
-            Arc::new(clan.clone()),
-            sorted_keys,
-            Arc::new(combined_key),
-            rx_vote_4,
-            tx_certificate,
+            Arc::new(vote_processor),
+            Arc::new(header_msg_processor)
         );
 
         CertificateHandler::spawn(
@@ -350,7 +334,6 @@ impl Primary {
 #[derive(Clone)]
 struct PrimaryReceiverHandler {
     tx_primary_messages: Sender<PrimaryMessage>,
-    tx_vote_channels: Vec<Sender<Vote>>,
     tx_cert_requests: Sender<(Vec<Digest>, PublicKey)>,
 }
 
@@ -367,18 +350,6 @@ impl MessageHandler for PrimaryReceiverHandler {
                 .send((missing, requestor))
                 .await
                 .expect("Failed to send primary message"),
-            PrimaryMessage::Vote(vote) => {
-                //reading last byte from digest to read last two bits.
-                let last_two_bits = vote.id.0[31] & 0b11;
-                
-                match last_two_bits {
-                    0b00 => self.tx_vote_channels[0].send(vote).await.expect("Faild to send vote"),
-                    0b01 => self.tx_vote_channels[1].send(vote).await.expect("Faild to send vote"),
-                    0b10 => self.tx_vote_channels[2].send(vote).await.expect("Faild to send vote"),
-                    0b11 => self.tx_vote_channels[3].send(vote).await.expect("Faild to send vote"),
-                    _ => {}
-                }
-            }
 
             request => self
                 .tx_primary_messages

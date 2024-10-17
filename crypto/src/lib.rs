@@ -369,7 +369,7 @@ impl BlsSignatureService {
         Self { channel: tx }
     }
 
-    pub async fn request_signature(&mut self, digest: Digest) -> SignatureShareG1 {
+    pub async fn request_signature(&self, digest: Digest) -> SignatureShareG1 {
         let (sender, receiver): (
             oneshot::Sender<SignatureShareG1>,
             oneshot::Receiver<SignatureShareG1>,
