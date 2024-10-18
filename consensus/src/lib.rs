@@ -6,7 +6,6 @@ use log::{debug, info, warn};
 use primary::{Certificate, ConsensusMessage, Round};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 // #[cfg(test)]

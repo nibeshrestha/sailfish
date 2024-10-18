@@ -1,60 +1,56 @@
-use std::{collections::{HashMap, HashSet}, sync::{Arc, RwLock}};
-
 use crate::{
-    error::{DagError, DagResult}, messages::Vote, primary::{HeaderType, PrimaryMessage}, synchronizer::Synchronizer, Certificate, ConsensusMessage, HeaderInfo, HeaderMessage, Round
+    error::{DagError, DagResult},
+    messages::Vote,
+    primary::{HeaderType, PrimaryMessage},
+    synchronizer::Synchronizer,
+    Certificate, ConsensusMessage, HeaderInfo, HeaderMessage, Round,
 };
-use blsttc::PublicKeyShareG2;
-use config::{Clan, Committee};
 use crypto::{BlsSignatureService, Digest, PublicKey};
+use dashmap::{DashMap, DashSet};
 use log::{debug, info};
+use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 pub struct HeaderMsgProcessor {
     /// The committee information.
-    name : PublicKey,
-    committee: Arc<Committee>,
-    clan: Arc<Clan>,
-    sorted_keys: Arc<Vec<PublicKeyShareG2>>,
-    combined_pubkey: Arc<PublicKeyShareG2>,
+    name: PublicKey,
     store: Arc<Store>,
     synchronizer: Synchronizer,
     bls_signature_service: BlsSignatureService,
-    tx_certs : Sender<Vec<Certificate>>,
+    tx_certs: Sender<Vec<Certificate>>,
     tx_consensus_header_msg: Sender<ConsensusMessage>,
-    // processing_vote_aggregators: HashMap<Digest, VotesAggregator>,
+    // processing_header_infos: DashMap<Digest, HeaderInfo>,
+    last_voted: DashMap<Round, DashSet<PublicKey>>,
 }
 
 impl HeaderMsgProcessor {
     pub fn new(
         name: PublicKey,
-        committee: Arc<Committee>,
-        clan: Arc<Clan>,
-        sorted_keys: Arc<Vec<PublicKeyShareG2>>,
-        combined_pubkey: Arc<PublicKeyShareG2>,
         store: Arc<Store>,
         synchronizer: Synchronizer,
         bls_signature_service: BlsSignatureService,
-        tx_certs : Sender<Vec<Certificate>>,
+        tx_certs: Sender<Vec<Certificate>>,
         tx_consensus_header_msg: Sender<ConsensusMessage>,
-    ) -> Self{
-        
-            Self {
-                name,
-                committee,
-                clan,
-                sorted_keys,
-                combined_pubkey,
-                store,
-                synchronizer,
-                bls_signature_service,
-                tx_certs,
-                tx_consensus_header_msg,
-            }
+    ) -> Self {
+        Self {
+            name,
+            store,
+            synchronizer,
+            bls_signature_service,
+            tx_certs,
+            tx_consensus_header_msg,
+            // processing_header_infos: DashMap::new(),
+            last_voted: DashMap::new(),
+        }
     }
 
-    pub async fn process_header_msg(&self,  header_msg: &HeaderMessage, tx_primary: Arc<Sender<PrimaryMessage>>, processing_header_infos: Arc<RwLock<HashMap<Digest, HeaderInfo>>>, last_voted: Arc<RwLock<HashMap<Round, HashSet<PublicKey>>>>) -> DagResult<()> {
-        
+    pub async fn process_header_msg(
+        &self,
+        header_msg: &HeaderMessage,
+        tx_primary: Arc<Sender<PrimaryMessage>>,
+        processing_header_infos: Arc<DashMap<Digest, HeaderInfo>>,
+    ) -> DagResult<()> {
         debug!("Processing {:?}", header_msg);
         let header_info: HeaderInfo;
 
@@ -90,29 +86,27 @@ impl HeaderMsgProcessor {
         );
 
         // Indicate that we are processing this header.
-        processing_header_infos.write().unwrap().entry(header_info.id)
+        processing_header_infos
+            .entry(header_info.id)
             .or_insert(header_info.clone());
 
         // // Check if we can vote for this header.
-        if last_voted.write().unwrap()
+        if self
+            .last_voted
             .entry(header_info.round)
-            .or_insert_with(HashSet::new)
+            .or_insert_with(DashSet::new)
             .insert(header_info.author)
         {
             // Make a vote and send it to all nodes
-            let vote = Vote::new_for_header_info(
-                &header_info,
-                &self.name,
-                &self.bls_signature_service,
-            )
-            .await;
+            let vote =
+                Vote::new_for_header_info(&header_info, &self.name, &self.bls_signature_service)
+                    .await;
             // debug!("Created {:?}", vote);
 
             // self.process_vote(&vote, tx_primary)
             //     .await
             //     .expect("Failed to process our own vote");
             let _ = tx_primary.send(PrimaryMessage::MyVote(vote)).await;
-
         }
 
         // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
@@ -146,6 +140,5 @@ impl HeaderMsgProcessor {
         self.store.write(hid.to_vec(), bytes).await;
 
         Ok(())
-    
     }
 }

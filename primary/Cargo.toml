@@ -19,7 +19,7 @@ log = "0.4.11"
 async-recursion = "0.3.2"
 async-trait = "0.1.50"
 blsttc = {package = "blsttc", git = "ssh://git@github.com/naitik-supraoracles/blsttc-supra-for-moonshot.git", rev = "4ca8a9d97893e2dfd74eee427400ac119e3e9dd9"}
-rayon = "1.5"
+dashmap = { version = "5.5.3", features = ["inline"] }
 
 crypto = { path = "../crypto" }
 store = { path = "../store" }

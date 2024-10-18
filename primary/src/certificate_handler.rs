@@ -1,7 +1,7 @@
 use crate::aggregators::CertificatesAggregator;
 use crate::primary::Round;
 use config::Committee;
-use crypto::PublicKey;
+use crypto::{Hash, PublicKey};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{collections::HashMap, sync::Arc};
@@ -11,7 +11,7 @@ use crate::messages::Certificate;
 use async_recursion::async_recursion;
 use log::{debug, info, warn};
 
-use crate::error::DagResult;
+use crate::error::{DagError, DagResult};
 
 pub struct CertificateHandler {
     certificates_aggregators: HashMap<Round, Box<CertificatesAggregator>>,
@@ -61,6 +61,11 @@ impl CertificateHandler {
 
     #[async_recursion]
     async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
+        ensure!(
+            self.gc_round <= certificate.round(),
+            DagError::TooOld(certificate.digest(), certificate.round())
+        );
+
         debug!(
             "Processing cert {:?} round {}",
             certificate.header_id, certificate.round

@@ -1,4 +1,3 @@
-use crate::aggregators::VotesAggregator;
 use crate::certificate_handler::CertificateHandler;
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::certificate_waiter::CertificateWaiter;
@@ -26,11 +25,9 @@ use futures::sink::SinkExt as _;
 use log::info;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::error::Error;
 use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, RwLock};
-use std::sync::Mutex;
+use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
@@ -204,34 +201,26 @@ impl Primary {
             Arc::new(clan.clone()),
             Arc::clone(&sorted_keys),
             Arc::new(combined_key),
-            Arc::new(tx_certificate),
+            Arc::new(tx_certificate.clone()),
         );
 
         //header msg processor
         let header_msg_processor = HeaderMsgProcessor::new(
             name,
-            Arc::new(committee.clone()),
-            Arc::new(clan.clone()),
-            Arc::clone(&sorted_keys),
-            Arc::new(combined_key),
-            Arc::new(store.clone()), 
-            synchronizer.clone(),
+            Arc::new(store.clone()),
+            synchronizer,
             bls_signature_service.clone(),
             tx_certs.clone(),
             tx_consensus_header_msg.clone(),
-            );
+        );
 
         // The `SignatureService` is used to require signatures on specific digests.
-        
+
         // The `Core` receives and handles headers, votes, and certificates from the other primaries.
         Core::spawn(
             name,
             Arc::new(committee.clone()),
             Arc::new(clan.clone()),
-            sorted_keys.clone(),
-            Arc::new(combined_key),
-            store.clone(),
-            synchronizer,
             signature_service.clone(),
             bls_signature_service,
             consensus_round.clone(),
@@ -248,10 +237,10 @@ impl Primary {
             tx_timeout_cert,
             tx_no_vote_cert,
             tx_consensus_header_msg,
-            tx_certs,
+            tx_certificate,
             leaders_per_round,
             Arc::new(vote_processor),
-            Arc::new(header_msg_processor)
+            Arc::new(header_msg_processor),
         );
 
         CertificateHandler::spawn(

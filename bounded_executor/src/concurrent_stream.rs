@@ -51,7 +51,6 @@ pub trait ConcurrentStream: Stream {
     }
 }
 
-
 impl<T: ?Sized> ConcurrentStream for T where T: Stream {}
 
 #[cfg(test)]
