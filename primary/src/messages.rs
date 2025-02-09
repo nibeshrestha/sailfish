@@ -2,11 +2,8 @@ use crate::batch_maker::Transaction;
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::primary::Round;
-use blsttc::{PublicKeyShareG2, SignatureShareG1};
 use config::Committee;
-use crypto::{
-    remove_pubkeys, BlsSignatureService, Digest, Hash, PublicKey, Signature, SignatureService,
-};
+use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use serde::{Deserialize, Serialize};
@@ -21,9 +18,6 @@ pub struct Header {
     pub payload: Vec<Transaction>,
     pub parents: Vec<Digest>,
     pub id: Digest,
-    pub signature: Signature,
-    pub timeout_cert: TimeoutCert,
-    pub no_vote_certs: Vec<NoVoteCert>,
 }
 
 impl Header {
@@ -32,9 +26,6 @@ impl Header {
         round: Round,
         payload: Vec<Transaction>,
         parents: Vec<Digest>,
-        timeout_cert: TimeoutCert,
-        no_vote_certs: Vec<NoVoteCert>,
-        signature_service: &mut SignatureService,
     ) -> Self {
         let header = Self {
             author,
@@ -42,17 +33,9 @@ impl Header {
             payload,
             parents,
             id: Digest::default(),
-            signature: Signature::default(),
-            timeout_cert,
-            no_vote_certs,
         };
         let id = header.digest();
-        let signature = signature_service.request_signature(id.clone()).await;
-        Self {
-            id,
-            signature,
-            ..header
-        }
+        Self { id, ..header }
     }
 
     pub fn verify(&self, committee: &Committee) -> DagResult<()> {
@@ -62,13 +45,7 @@ impl Header {
         // Ensure the authority has voting rights.
         let voting_rights = committee.stake(&self.author);
         ensure!(voting_rights > 0, DagError::UnknownAuthority(self.author));
-
-        // Check the signature.
-        self.signature
-            .verify(&self.id, &self.author)
-            .map_err(DagError::from)
-
-        // Check if pointer to prev leader exists
+        Ok(())
     }
 
     pub fn genesis(committee: &Committee) -> Vec<Self> {
@@ -156,9 +133,6 @@ pub struct HeaderInfo {
     pub payload: Digest,
     pub parents: Vec<Digest>,
     pub id: Digest,
-    pub signature: Signature,
-    pub timeout_cert: TimeoutCert,
-    no_vote_certs: Vec<NoVoteCert>,
 }
 impl HeaderInfo {
     pub fn create_from(header: &Header) -> Self {
@@ -168,9 +142,6 @@ impl HeaderInfo {
             payload: payload_digest(&header),
             parents: header.parents.clone(),
             id: header.id,
-            signature: header.signature.clone(),
-            timeout_cert: header.timeout_cert.clone(),
-            no_vote_certs: header.no_vote_certs.clone(),
         };
         header_info
     }
@@ -178,13 +149,10 @@ impl HeaderInfo {
         // Ensure the authority has voting rights.
         let voting_rights = committee.stake(&self.author);
         ensure!(voting_rights > 0, DagError::UnknownAuthority(self.author));
-        // Check the signature.
-        self.signature
-            .verify(&self.id, &self.author)
-            .map_err(DagError::from)
-        // Check if pointer to prev leader exists
+        Ok(())
     }
 }
+
 fn payload_digest(header: &Header) -> Digest {
     let mut hasher = Sha512::new();
     for x in &header.payload {
@@ -323,40 +291,16 @@ pub struct Vote {
     pub round: Round,
     pub origin: PublicKey,
     pub author: PublicKey,
-    pub signature: SignatureShareG1,
 }
 
 impl Vote {
-    pub async fn new_for_header_info(
-        header_info: &HeaderInfo,
-        author: &PublicKey,
-        bls_signature_service: &mut BlsSignatureService,
-    ) -> Self {
-        let vote = Self {
+    pub async fn new_for_header_info(header_info: &HeaderInfo, author: &PublicKey) -> Self {
+        Self {
             id: header_info.id.clone(),
             round: header_info.round,
             origin: header_info.author,
             author: *author,
-            signature: SignatureShareG1::default(),
-        };
-        let signature = bls_signature_service.request_signature(vote.digest()).await;
-        Self { signature, ..vote }
-    }
-
-    pub async fn new(
-        header: &Header,
-        author: &PublicKey,
-        bls_signature_service: &mut BlsSignatureService,
-    ) -> Self {
-        let vote = Self {
-            id: header.digest(),
-            round: header.round,
-            origin: header.author,
-            author: *author,
-            signature: SignatureShareG1::default(),
-        };
-        let signature = bls_signature_service.request_signature(vote.digest()).await;
-        Self { signature, ..vote }
+        }
     }
 
     pub fn verify(&self, committee: &Committee) -> DagResult<()> {
@@ -365,12 +309,7 @@ impl Vote {
             committee.stake(&self.author) > 0,
             DagError::UnknownAuthority(self.author)
         );
-
-        let author_bls = committee.get_bls_public_g2(&self.author);
-
-        // Check the signature.
-        SignatureShareG1::verify_batch(&self.digest().0, &author_bls, &self.signature)
-            .map_err(DagError::from)
+        Ok(())
     }
 }
 
@@ -497,7 +436,6 @@ pub struct Certificate {
     pub header_id: Digest,
     pub round: Round,
     pub origin: PublicKey,
-    pub votes: (Vec<u128>, SignatureShareG1),
 }
 
 impl Certificate {
@@ -509,49 +447,13 @@ impl Certificate {
             .collect()
     }
 
-    pub fn verify(
-        &self,
-        committee: &Committee,
-        sorted_keys: &Vec<PublicKeyShareG2>,
-        combined_pubkey: &PublicKeyShareG2,
-    ) -> DagResult<()> {
+    pub fn verify(&self, committee: &Committee) -> DagResult<()> {
         // Genesis certificates are always valid.
         if Self::genesis(committee).contains(self) {
             return Ok(());
         }
 
-        // // Check the embedded header.
-        // self.header.verify(committee)?;
-
-        // // Ensure the certificate has a quorum.
-        // let mut weight = 0;
-        // let mut used = HashSet::new();
-        // for (name, _) in self.votes.iter() {
-        //     ensure!(!used.contains(name), DagError::AuthorityReuse(*name));
-        //     let voting_rights = committee.stake(name);
-        //     ensure!(voting_rights > 0, DagError::UnknownAuthority(*name));
-        //     used.insert(*name);
-        //     weight += voting_rights;
-        // }
-        // ensure!(
-        //     weight >= committee.quorum_threshold(),
-        //     DagError::CertificateRequiresQuorum
-        // );
-
-        let mut ids = Vec::new();
-        for idx in 0..committee.size() {
-            let x = idx / 128;
-            let chunk = self.votes.0[x];
-            let ridx = idx - x * 128;
-            if chunk & 1 << ridx != 0 {
-                ids.push(idx);
-            }
-        }
-        // let pks: Vec<PublicKeyShareG2> = ids.iter().map(|i| sorted_keys[*i]).collect();
-        let agg_pk = remove_pubkeys(&combined_pubkey, ids, &sorted_keys);
-
-        SignatureShareG1::verify_batch(&self.digest().0, &agg_pk, &self.votes.1)
-            .map_err(DagError::from)
+        Ok(())
     }
 
     pub fn round(&self) -> Round {

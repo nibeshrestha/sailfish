@@ -10,8 +10,6 @@ use crate::messages::{
     Certificate, Header, HeaderInfo, HeaderInfoWithCertificate, HeaderWithCertificate, NoVoteMsg,
     Timeout, Vote,
 };
-use crate::vote_processor::VoteProcessor;
-// use crate::payload_receiver::PayloadReceiver;
 use crate::proposer::Proposer;
 use crate::synchronizer::Synchronizer;
 use crate::worker::Worker;
@@ -113,7 +111,6 @@ impl Primary {
         let (tx_certificates_loopback, rx_certificates_loopback) = channel(CHANNEL_CAPACITY);
         let (tx_primary_messages, rx_primary_messages) = channel(CHANNEL_CAPACITY);
         let (tx_cert_requests, rx_cert_requests) = channel(CHANNEL_CAPACITY);
-        let (tx_vote, rx_vote) = channel(CHANNEL_CAPACITY);
         let (tx_certificate, rx_certificate) = channel(CHANNEL_CAPACITY);
         let (tx_certs, rx_certs) = channel(CHANNEL_CAPACITY);
 
@@ -141,7 +138,6 @@ impl Primary {
             /* handler */
             PrimaryReceiverHandler {
                 tx_primary_messages: tx_primary_messages.clone(),
-                tx_vote: tx_vote.clone(),
                 tx_cert_requests,
             },
         );
@@ -216,14 +212,6 @@ impl Primary {
             tx_consensus_header_msg,
             tx_certs,
             leaders_per_round,
-        );
-
-        VoteProcessor::spawn(
-            Arc::new(committee.clone()),
-            sorted_keys,
-            Arc::new(combined_key),
-            rx_vote,
-            tx_certificate,
         );
 
         CertificateHandler::spawn(
@@ -306,7 +294,6 @@ impl Primary {
 #[derive(Clone)]
 struct PrimaryReceiverHandler {
     tx_primary_messages: Sender<PrimaryMessage>,
-    tx_vote: Sender<Vote>,
     tx_cert_requests: Sender<(Vec<Digest>, PublicKey)>,
 }
 
@@ -323,9 +310,7 @@ impl MessageHandler for PrimaryReceiverHandler {
                 .send((missing, requestor))
                 .await
                 .expect("Failed to send primary message"),
-            PrimaryMessage::Vote(vote) => {
-                self.tx_vote.send(vote).await.expect("Faild to send vote")
-            }
+
             request => self
                 .tx_primary_messages
                 .send(request)

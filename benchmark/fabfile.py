@@ -10,7 +10,7 @@ from benchmark.remote import Bench, BenchError
 
 
 @task
-def local(ctx, debug=False, consensus_only=True, header_size=512):
+def local(ctx, debug=False, consensus_only=True, header_size=1024000):
     ''' Run benchmarks on localhost '''
     bench_params = {
         'faults': 0,
@@ -41,7 +41,7 @@ def local(ctx, debug=False, consensus_only=True, header_size=512):
 
 
 @task
-def create(ctx, nodes=2):
+def create(ctx, nodes=1):
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)

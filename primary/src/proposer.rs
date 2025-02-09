@@ -144,20 +144,20 @@ impl Proposer {
     async fn make_header(&mut self) {
         // Make a new header.
         // Prepare the timeout and no vote certificates
-        let timeout_cert = if self.last_timeout_cert.round == self.round - 1 {
-            self.last_timeout_cert.clone()
-        } else {
-            TimeoutCert::new(0) // Assuming TimeoutCert::new creates an empty certificate
-        };
+        // let timeout_cert = if self.last_timeout_cert.round == self.round - 1 {
+        //     self.last_timeout_cert.clone()
+        // } else {
+        //     TimeoutCert::new(0) // Assuming TimeoutCert::new creates an empty certificate
+        // };
 
-        let no_vote_certs = if self.committee.leader((self.round) as usize) == self.name
-            && self.last_no_vote_cert.len() > 0
-            && self.last_no_vote_cert[0].round == self.round - 1
-        {
-            self.last_no_vote_cert.clone()
-        } else {
-            Vec::new()
-        };
+        // let no_vote_certs = if self.committee.leader((self.round) as usize) == self.name
+        //     && self.last_no_vote_cert.len() > 0
+        //     && self.last_no_vote_cert[0].round == self.round - 1
+        // {
+        //     self.last_no_vote_cert.clone()
+        // } else {
+        //     Vec::new()
+        // };
 
         let limit = if self.txns.len() * self.tx_size <= self.header_size {
             self.txns.len()
@@ -167,7 +167,7 @@ impl Proposer {
 
         let mut payload = Vec::new();
         if self.consensus_only {
-            payload = vec![vec![0u8; self.tx_size]; (self.header_size / self.tx_size)];
+            payload = vec![vec![0u8; self.tx_size]; self.header_size / self.tx_size];
         } else {
             payload = self.txns.drain(..limit).collect();
         }
@@ -179,9 +179,6 @@ impl Proposer {
             self.round,
             payload,
             parents.iter().map(|x| x.header_id).collect(),
-            timeout_cert,
-            no_vote_certs,
-            &mut self.signature_service,
         )
         .await;
 

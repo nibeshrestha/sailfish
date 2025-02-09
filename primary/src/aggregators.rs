@@ -1,66 +1,38 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::{DagError, DagResult};
 use crate::messages::{Certificate, NoVoteCert, NoVoteMsg, Timeout, TimeoutCert, Vote};
-use blsttc::{PublicKeyShareG2, SignatureShareG1};
 use config::{Committee, Stake};
-use crypto::{aggregate_sign, PublicKey, Signature};
+use crypto::PublicKey;
+use crypto::Signature;
 use log::debug;
 use std::collections::HashSet;
-use std::sync::Arc;
 
 /// Aggregates votes for a particular header into a certificate.
 pub struct VotesAggregator {
     weight: Stake,
-    votes: Vec<(PublicKeyShareG2, SignatureShareG1)>,
     used: HashSet<PublicKey>,
-    agg_sign: SignatureShareG1,
-    pk_bit_vec: Vec<u128>,
-    sorted_keys: Arc<Vec<PublicKeyShareG2>>,
 }
 
 impl VotesAggregator {
-    pub fn new(sorted_keys: Arc<Vec<PublicKeyShareG2>>, total_nodes: usize) -> Self {
+    pub fn new() -> Self {
         Self {
             weight: 0,
-            votes: Vec::new(),
             used: HashSet::new(),
-            agg_sign: SignatureShareG1::default(),
-            pk_bit_vec: vec![u128::MAX; (total_nodes + 127) / 128],
-            sorted_keys,
         }
     }
 
     pub fn append(&mut self, vote: &Vote, committee: &Committee) -> DagResult<Option<Certificate>> {
         let author = vote.author;
-        let author_bls = committee.get_bls_public_g2(&author);
-
         // Ensure it is the first time this authority votes.
         ensure!(self.used.insert(author), DagError::AuthorityReuse(author));
-
-        self.votes.push((author_bls, vote.signature));
         self.weight += committee.stake(&author);
-
-        let id = self.sorted_keys.binary_search(&author_bls).unwrap();
-        let chunk = id / 128;
-        let bit = id % 128;
-        //adding it to bitvec
-        self.pk_bit_vec[chunk] &= !(1 << bit);
-
-        if self.votes.len() == 1 {
-            self.agg_sign = vote.signature;
-        } else if self.votes.len() >= 2 {
-            let new_agg_sign = aggregate_sign(&self.agg_sign, &vote.signature);
-            self.agg_sign = new_agg_sign;
-        }
-
-        if self.weight >= committee.quorum_threshold() {
+        if self.weight >= committee.optimistic_threshold() {
             self.weight = 0; // Ensures quorum is only reached once.
 
             return Ok(Some(Certificate {
                 header_id: vote.id,
                 round: vote.round,
                 origin: vote.origin,
-                votes: (self.pk_bit_vec.clone(), self.agg_sign),
             }));
         }
         Ok(None)

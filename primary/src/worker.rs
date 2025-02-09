@@ -16,10 +16,6 @@ use tokio::sync::mpsc::{channel, Sender};
 /// The default channel capacity for each channel of the worker.
 pub const CHANNEL_CAPACITY: usize = 1_000;
 
-/// The primary round number.
-// TODO: Move to the primary.
-pub type Round = u64;
-
 /// The message exchanged between workers.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum WorkerMessage {

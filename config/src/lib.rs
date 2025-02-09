@@ -203,6 +203,16 @@ impl Committee {
         2 * total_votes / 3 + 1
     }
 
+    pub fn optimistic_threshold(&self) -> Stake {
+        let total_votes: Stake = self.authorities.values().map(|x| x.stake).sum();
+        let ceil_result = if (5 * total_votes + 1) % 6 == 0 {
+            (5 * total_votes + 1) / 6
+        } else {
+            ((5 * total_votes + 1) + 6 - 1) / 6
+        };
+        ceil_result
+    }
+
     /// Returns the stake required to reach availability (f+1).
     pub fn validity_threshold(&self) -> Stake {
         // If N = 3f + 1 + k (0 <= k < 3)
