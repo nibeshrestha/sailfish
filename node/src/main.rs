@@ -106,17 +106,6 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
     let bls_keypair =
         BlsKeyPair::import(bls_key_file).context("Failed to load the node's keypair")?;
 
-    let comm = Comm::import(committee_file).context("Failed to load the committee information")?;
-
-    let committee = Committee::new(comm.authorities);
-
-    let mut sorted_keys = committee.get_bls_public_keys();
-    sorted_keys.sort();
-
-    info!("{}", sorted_keys.len());
-
-    let combined_pubkey = combine_keys(&sorted_keys);
-
     // Load default parameters if none are specified.
     let parameters = match parameters_file {
         Some(filename) => {
@@ -124,6 +113,15 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
         }
         None => Parameters::default(),
     };
+
+    let comm = Comm::import(committee_file).context("Failed to load the committee information")?;
+
+    let committee = Committee::new(comm.authorities, parameters.f_num);
+
+    let mut sorted_keys = committee.get_bls_public_keys();
+    sorted_keys.sort();
+
+    let combined_pubkey = combine_keys(&sorted_keys);
 
     // Make the data store.
     let store = Store::new(store_path).context("Failed to create a store")?;

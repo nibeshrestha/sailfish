@@ -288,7 +288,7 @@ impl Core {
             .or_insert(header_info.clone());
 
         // Check if we can vote for this header.
-        if self
+        if header_info.author != self.name && self
             .last_voted
             .entry(header_info.round)
             .or_insert_with(HashSet::new)

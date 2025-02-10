@@ -84,6 +84,7 @@ pub struct Parameters {
     /// is not reached. Denominated in ms.
     pub max_batch_delay: u64,
     pub leaders_per_round: usize,
+    pub f_num: u32,
 }
 
 impl Default for Parameters {
@@ -99,6 +100,7 @@ impl Default for Parameters {
             tx_size: 512,
             max_batch_delay: 100,
             leaders_per_round: 3,
+            f_num: 3,
         }
     }
 }
@@ -119,6 +121,8 @@ impl Parameters {
         info!("Max batch delay set to {} ms", self.max_batch_delay);
         info!("Leaders per round set to {}", self.leaders_per_round);
         info!("Transaction size set to {} B", self.tx_size);
+        info!("F  set to {} B", self.f_num);
+
     }
 }
 
@@ -161,17 +165,19 @@ impl Import for Comm {}
 pub struct Committee {
     pub authorities: BTreeMap<PublicKey, Authority>,
     pub sorted_keys: Vec<PublicKey>,
+    pub f_num: u32,
 }
 
 impl Import for Committee {}
 
 impl Committee {
-    pub fn new(authorities: BTreeMap<PublicKey, Authority>) -> Committee {
+    pub fn new(authorities: BTreeMap<PublicKey, Authority>, f_num: u32) -> Committee {
         let mut keys: Vec<_> = authorities.keys().cloned().collect();
         keys.sort();
         let committee = Self {
             authorities,
             sorted_keys: keys,
+            f_num
         };
         committee
     }
@@ -205,11 +211,8 @@ impl Committee {
 
     pub fn optimistic_threshold(&self) -> Stake {
         let total_votes: Stake = self.authorities.values().map(|x| x.stake).sum();
-        let ceil_result = if (5 * total_votes + 1) % 6 == 0 {
-            (5 * total_votes + 1) / 6
-        } else {
-            ((5 * total_votes + 1) + 6 - 1) / 6
-        };
+        let x = (total_votes + 2*self.f_num-2) as f64 / 2.0;
+        let ceil_result = x.ceil() as u32;
         ceil_result
     }
 
