@@ -1,5 +1,4 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::certificate_handler::CertificateHandler;
 use crate::certificate_waiter::CertificateWaiter;
 use crate::core::Core;
 use crate::error::DagError;
@@ -111,8 +110,6 @@ impl Primary {
         let (tx_certificates_loopback, rx_certificates_loopback) = channel(CHANNEL_CAPACITY);
         let (tx_primary_messages, rx_primary_messages) = channel(CHANNEL_CAPACITY);
         let (tx_cert_requests, rx_cert_requests) = channel(CHANNEL_CAPACITY);
-        let (tx_certificate, rx_certificate) = channel(CHANNEL_CAPACITY);
-        let (tx_certs, rx_certs) = channel(CHANNEL_CAPACITY);
 
         // Write the parameters to the logs.
         parameters.log();
@@ -210,19 +207,7 @@ impl Primary {
             tx_timeout_cert,
             tx_no_vote_cert,
             tx_consensus_header_msg,
-            tx_certs,
             leaders_per_round,
-        );
-
-        CertificateHandler::spawn(
-            rx_certificate,
-            rx_certs,
-            tx_consensus,
-            tx_parents,
-            leaders_per_round,
-            parameters.gc_depth,
-            committee.clone(),
-            consensus_round.clone(),
         );
 
         // Keeps track of the latest consensus round and allows other tasks to clean up their their internal state

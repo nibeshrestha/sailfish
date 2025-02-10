@@ -127,42 +127,7 @@ impl HeaderWaiter {
             tokio::select! {
                 Some(message) = self.rx_synchronizer.recv() => {
                     match message {
-                        // WaiterMessage::SyncPayload(missing_header_id, header) => {
-                        //     debug!("Synching the payload of {}", header);
-                        //     let header_id = header.id.clone();
-                        //     let round = header.round;
-                        //     let author = header.author;
-
-                        //     // Ensure we sync only once per header.
-                        //     if self.pending.contains_key(&header_id) {
-                        //         continue;
-                        //     }
-
-                        //     // Add the header to the waiter pool. The waiter will return it to when all
-                        //     // its parents are in the store.
-                        //     let mut wait_for = Vec::new();
-                        //     wait_for.push((missing_header_id.to_vec(), self.store.clone()));
-                        //     let (tx_cancel, rx_cancel) = channel(1);
-                        //     self.pending.insert(header_id, (round, tx_cancel));
-                        //     let fut = Self::waiter(wait_for, header, rx_cancel);
-                        //     waiting.push(fut);
-
-                        //     // Ensure we didn't already send a sync request for these parents.
-                        //     // let mut requires_sync = HashMap::new();
-
-                        //     self.payload_requests.entry(missing_header_id.clone()).or_insert(round);
-
-                        //     let address = self.committee
-                        //             .primary(&author)
-                        //             .expect("Author of valid header is not in the committee")
-                        //             .primary_to_primary;
-                        //     let message = PrimaryMessage::PayloadRequest(missing_header_id, author);
-                        //     let bytes = bincode::serialize(&message)
-                        //         .expect("Failed to serialize batch sync request");
-                        //     self.network.send(address, Bytes::from(bytes)).await;
-
-                        // }
-
+                        
                         WaiterMessage::SyncParents(missing, header_type) => {
                             let id : Digest;
                             let round : Round;

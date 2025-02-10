@@ -9,7 +9,6 @@ use config::{Committee, KeyPair, Parameters};
 use consensus::Consensus;
 use crypto::combine_keys;
 use env_logger::Env;
-use log::info;
 use primary::{Certificate, Primary};
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver};
@@ -159,16 +158,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
                 parameters.leaders_per_round,
             );
         }
-
-        // // Spawn a single worker.
-        // ("worker", Some(sub_matches)) => {
-        //     let id = sub_matches
-        //         .value_of("id")
-        //         .unwrap()
-        //         .parse::<WorkerId>()
-        //         .context("The worker id must be a positive integer")?;
-        //     Worker::spawn(ed_keypair.name, id, committee, parameters, store);
-        // }
+        
         _ => unreachable!(),
     }
 

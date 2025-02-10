@@ -15,7 +15,7 @@ use bytes::Bytes;
 use config::Committee;
 use crypto::{BlsSignatureService, Hash as _};
 use crypto::{Digest, PublicKey, SignatureService};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use network::{CancelHandler, ReliableSender};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -68,7 +68,6 @@ pub struct Core {
     tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
     /// Send a the header that has voted for the prev leader to the `Consensus` logic.
     tx_consensus_header_msg: Sender<ConsensusMessage>,
-    tx_certs: Sender<Vec<Certificate>>,
     /// The last garbage collected round.
     gc_round: Round,
     /// The authors of the last voted headers.
@@ -116,7 +115,6 @@ impl Core {
         tx_timeout_cert: Sender<(TimeoutCert, Round)>,
         tx_no_vote_cert: Sender<(NoVoteCert, Round)>,
         tx_consensus_header_msg: Sender<ConsensusMessage>,
-        tx_certs: Sender<Vec<Certificate>>,
         leaders_per_round: usize,
     ) {
         tokio::spawn(async move {
@@ -141,7 +139,6 @@ impl Core {
                 tx_timeout_cert,
                 tx_no_vote_cert,
                 tx_consensus_header_msg,
-                tx_certs,
                 gc_round: 0,
                 last_voted: HashMap::with_capacity(2 * gc_depth as usize),
                 processing_header_infos: HashMap::new(),
@@ -261,17 +258,9 @@ impl Core {
         let header_info: HeaderInfo;
         match header_msg {
             HeaderMessage::HeaderWithCertificate(header_with_parents) => {
-                let _ = self
-                    .tx_certs
-                    .send(header_with_parents.parents.clone())
-                    .await;
                 header_info = HeaderInfo::create_from(&header_with_parents.header);
             }
             HeaderMessage::HeaderInfoWithCertificate(header_info_with_parents) => {
-                let _ = self
-                    .tx_certs
-                    .send(header_info_with_parents.parents.clone())
-                    .await;
                 header_info = header_info_with_parents.header_info.clone();
             }
             HeaderMessage::Header(header) => {
@@ -325,7 +314,7 @@ impl Core {
                 .get_parents(&HeaderType::HeaderInfo(header_info.clone()))
                 .await?;
             if parents.is_empty() {
-                debug!(
+                info!(
                     "Processing of {} suspended: missing parent(s)",
                     header_info.id
                 );
@@ -429,8 +418,6 @@ impl Core {
         if let Some(vote_aggregator) = self.processing_vote_aggregators.get_mut(&vote.id) {
             // Add it to the votes' aggregator and try to make a new certificate.
             if let Some(certificate) = vote_aggregator.append(&vote, &self.committee)? {
-                debug!("Assembled {:?}", certificate);
-                // self.processed_headers.insert(certificate.header_id.clone());
 
                 // Process the new certificate.
                 let _ = self.process_certificate(certificate).await;
@@ -446,13 +433,13 @@ impl Core {
 
         // Ensure we have all the ancestors of this certificate yet. If we don't, the synchronizer will gather
         // them and trigger re-processing of this certificate.
-        if !self.synchronizer.deliver_certificate(&certificate).await? {
-            debug!(
-                "Processing of {:?} suspended: missing ancestors",
-                certificate
-            );
-            return Ok(());
-        }
+        // if !self.synchronizer.deliver_certificate(&certificate).await? {
+        //     info!(
+        //         "Processing of {:?} suspended: missing ancestors",
+        //         certificate
+        //     );
+        //     return Ok(());
+        // }
 
         // Store the certificate.
         let bytes = bincode::serialize(&certificate).expect("Failed to serialize certificate");
