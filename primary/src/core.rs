@@ -271,6 +271,8 @@ impl Core {
             }
         }
 
+        info!("recv header {:?}", header_info.id);
+
         // Indicate that we are processing this header.
         self.processing_header_infos
             .entry(header_info.id)
@@ -299,11 +301,8 @@ impl Core {
                 .entry(header_info.round)
                 .or_insert_with(Vec::new)
                 .extend(handlers);
-
-            self.process_vote(&vote)
-                .await
-                .expect("Failed to process our own vote");
-        }
+         }
+        info!("sent votes {:?}", header_info.id);
 
         // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
         // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
@@ -326,11 +325,13 @@ impl Core {
             .send(ConsensusMessage::HeaderInfo(header_info.clone()))
             .await
             .expect("failed to send HeaderInfo to consensus");
+        info!("before store {:?}", header_info.id);
         let hid = header_info.id;
         // Store the header.
         let header_type = HeaderType::HeaderInfo(header_info);
         let bytes = bincode::serialize(&header_type).expect("Failed to serialize header");
         self.store.write(hid.to_vec(), bytes).await;
+        info!("processed header {:?}", hid);
         Ok(())
     }
 
