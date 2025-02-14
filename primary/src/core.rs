@@ -279,11 +279,12 @@ impl Core {
             .or_insert(header_info.clone());
 
         // Check if we can vote for this header.
-        if header_info.author != self.name && self
-            .last_voted
-            .entry(header_info.round)
-            .or_insert_with(HashSet::new)
-            .insert(header_info.author)
+        if header_info.author != self.name
+            && self
+                .last_voted
+                .entry(header_info.round)
+                .or_insert_with(HashSet::new)
+                .insert(header_info.author)
         {
             // Make a vote and send it to all nodes
             let vote = Vote::new_for_header_info(&header_info, &self.name).await;
@@ -301,7 +302,7 @@ impl Core {
                 .entry(header_info.round)
                 .or_insert_with(Vec::new)
                 .extend(handlers);
-         }
+        }
         info!("sent votes {:?}", header_info.id);
 
         // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
@@ -320,7 +321,6 @@ impl Core {
                 return Ok(());
             }
         }
-        info!("before consensus {:?}", header_info.id);
         // Send header to consensus
         self.tx_consensus_header_msg
             .send(ConsensusMessage::HeaderInfo(header_info.clone()))
@@ -328,10 +328,13 @@ impl Core {
             .expect("failed to send HeaderInfo to consensus");
 
         let hid = header_info.id;
+        let hr = header_info.round;
+
         // Store the header.
         let header_type = HeaderType::HeaderInfo(header_info);
         let bytes = bincode::serialize(&header_type).expect("Failed to serialize header");
         self.store.write(hid.to_vec(), bytes).await;
+        self.synchronizer.deliver_vertex(hr, hid).await?;
         info!("processed header {:?}", hid);
         Ok(())
     }
@@ -420,7 +423,6 @@ impl Core {
         if let Some(vote_aggregator) = self.processing_vote_aggregators.get_mut(&vote.id) {
             // Add it to the votes' aggregator and try to make a new certificate.
             if let Some(certificate) = vote_aggregator.append(&vote, &self.committee)? {
-
                 // Process the new certificate.
                 let _ = self.process_certificate(certificate).await;
             }
@@ -432,8 +434,11 @@ impl Core {
     #[async_recursion]
     async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
         debug!("Processing {:?}", certificate);
-        info!("Cert recv header {:?} round {:?}", certificate.header_id, certificate.round);
-        
+        info!(
+            "Cert recv header {:?} round {:?}",
+            certificate.header_id, certificate.round
+        );
+
         // Ensure we have all the ancestors of this certificate yet. If we don't, the synchronizer will gather
         // them and trigger re-processing of this certificate.
         // if !self.synchronizer.deliver_certificate(&certificate).await? {
@@ -648,6 +653,7 @@ impl Core {
                     .retain(|_, h| &h.round >= &gc_round);
                 self.certificates_aggregators.retain(|k, _| k >= &gc_round);
                 self.cancel_handlers.retain(|k, _| k >= &gc_round);
+                let _ = self.synchronizer.garbage_collect(gc_round).await;
                 self.gc_round = gc_round;
             }
         }

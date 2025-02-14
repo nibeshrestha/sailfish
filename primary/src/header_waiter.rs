@@ -127,7 +127,7 @@ impl HeaderWaiter {
             tokio::select! {
                 Some(message) = self.rx_synchronizer.recv() => {
                     match message {
-                        
+
                         WaiterMessage::SyncParents(missing, header_type) => {
                             let id : Digest;
                             let round : Round;

@@ -122,7 +122,6 @@ impl Parameters {
         info!("Leaders per round set to {}", self.leaders_per_round);
         info!("Transaction size set to {} B", self.tx_size);
         info!("F  set to {} B", self.f_num);
-
     }
 }
 
@@ -177,7 +176,7 @@ impl Committee {
         let committee = Self {
             authorities,
             sorted_keys: keys,
-            f_num
+            f_num,
         };
         committee
     }
@@ -211,7 +210,7 @@ impl Committee {
 
     pub fn optimistic_threshold(&self) -> Stake {
         let total_votes: Stake = self.authorities.values().map(|x| x.stake).sum();
-        let x = (total_votes + 2*self.f_num-2) as f64 / 2.0;
+        let x = (total_votes + 2 * self.f_num - 2) as f64 / 2.0;
         let ceil_result = x.ceil() as u32;
         ceil_result
     }

@@ -192,10 +192,7 @@ impl Proposer {
                 header.id,
                 header.payload.len() * self.tx_size
             );
-            info!(
-                "Created header for round {:?}",
-                header.round
-            );
+            info!("Created header for round {:?}", header.round);
 
             if !self.consensus_only {
                 let tx_ids: Vec<_> = header

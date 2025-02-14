@@ -179,6 +179,7 @@ impl Primary {
             store.clone(),
             /* tx_header_waiter */ tx_sync_headers,
             /* tx_certificate_waiter */ tx_sync_certificates,
+            parameters.gc_depth,
         );
 
         // The `SignatureService` is used to require signatures on specific digests.

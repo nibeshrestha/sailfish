@@ -1,11 +1,16 @@
+use std::collections::HashMap;
+
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::error::DagResult;
 use crate::header_waiter::WaiterMessage;
 use crate::messages::{Certificate, Header};
 use crate::primary::HeaderType;
+use crate::{HeaderInfo, Round};
 use config::Committee;
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
+use log::info;
+use std::collections::HashSet;
 use store::Store;
 use tokio::sync::mpsc::Sender;
 
@@ -22,6 +27,8 @@ pub struct Synchronizer {
     tx_certificate_waiter: Sender<Certificate>,
     /// The genesis and its digests.
     genesis: Vec<(Digest, Header)>,
+    delivered_parents: HashMap<Round, HashSet<Digest>>,
+    gc_depth: Round,
 }
 
 impl Synchronizer {
@@ -31,6 +38,7 @@ impl Synchronizer {
         store: Store,
         tx_header_waiter: Sender<WaiterMessage>,
         tx_certificate_waiter: Sender<Certificate>,
+        gc_depth: Round,
     ) -> Self {
         Self {
             name,
@@ -41,6 +49,8 @@ impl Synchronizer {
                 .into_iter()
                 .map(|x| (x.id, x))
                 .collect(),
+            delivered_parents: HashMap::with_capacity(2 * gc_depth as usize),
+            gc_depth,
         }
     }
 
@@ -81,17 +91,34 @@ impl Synchronizer {
     //     Ok(true)
     // }
 
+    pub async fn deliver_vertex(&mut self, round: Round, header_id: Digest) -> DagResult<()> {
+        self.delivered_parents
+            .entry(round)
+            .or_insert_with(HashSet::new)
+            .insert(header_id);
+        Ok(())
+    }
+
+    pub async fn garbage_collect(&mut self, gc_round: Round) -> DagResult<()> {
+        self.delivered_parents.retain(|k, _| k >= &gc_round);
+        Ok(())
+    }
+
     /// Returns the parents of a header if we have them all. If at least one parent is missing,
     /// we return an empty vector, synchronize with other nodes, and re-schedule processing
     /// of the header for when we will have all the parents.
-    pub async fn get_parents(&mut self, header_msg: &HeaderType) -> DagResult<Vec<HeaderType>> {
+    pub async fn get_parents(&mut self, header_msg: &HeaderType) -> DagResult<Vec<Digest>> {
         let h_parents: Vec<_>;
+        let round: Round;
+
         match header_msg {
             HeaderType::Header(header) => {
                 h_parents = header.parents.clone();
+                round = header.round - 1;
             }
             HeaderType::HeaderInfo(header_info) => {
                 h_parents = header_info.parents.clone();
+                round = header_info.round - 1;
             }
         }
 
@@ -105,14 +132,21 @@ impl Synchronizer {
                 .map(|(_, x)| x)
             {
                 let genesis_header_msg = HeaderType::Header(genesis.clone());
-                parents.push(genesis_header_msg);
+                parents.push(*digest);
                 continue;
+            }
+
+            if let Some(par) = self.delivered_parents.get(&round){
+                if par.contains(digest){
+                    parents.push(*digest);
+                    continue;
+                }
             }
 
             match self.store.read(digest.to_vec()).await? {
                 Some(h) => {
                     let header_msg: HeaderType = bincode::deserialize(&h).unwrap();
-                    parents.push(header_msg)
+                    parents.push(*digest)
                 }
                 None => missing.push(digest.clone()),
             };
