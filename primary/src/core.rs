@@ -320,12 +320,13 @@ impl Core {
                 return Ok(());
             }
         }
+        info!("before consensus {:?}", header_info.id);
         // Send header to consensus
         self.tx_consensus_header_msg
             .send(ConsensusMessage::HeaderInfo(header_info.clone()))
             .await
             .expect("failed to send HeaderInfo to consensus");
-        info!("before store {:?}", header_info.id);
+
         let hid = header_info.id;
         // Store the header.
         let header_type = HeaderType::HeaderInfo(header_info);
