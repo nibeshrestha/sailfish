@@ -271,7 +271,7 @@ impl Core {
             }
         }
 
-        info!("recv header {:?}", header_info.id);
+        // info!("recv header {:?}", header_info.id);
 
         // Indicate that we are processing this header.
         self.processing_header_infos
@@ -303,7 +303,7 @@ impl Core {
                 .or_insert_with(Vec::new)
                 .extend(handlers);
         }
-        info!("sent votes {:?}", header_info.id);
+        // info!("sent votes {:?}", header_info.id);
 
         // Ensure we have the parents. If at least one parent is missing, the synchronizer returns an empty
         // vector; it will gather the missing parents (as well as all ancestors) from other nodes and then
@@ -335,7 +335,7 @@ impl Core {
         let bytes = bincode::serialize(&header_type).expect("Failed to serialize header");
         self.store.write(hid.to_vec(), bytes).await;
         self.synchronizer.deliver_vertex(hr, hid).await?;
-        info!("processed header {:?}", hid);
+        // info!("processed header {:?}", hid);
         Ok(())
     }
 
@@ -434,10 +434,10 @@ impl Core {
     #[async_recursion]
     async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
         debug!("Processing {:?}", certificate);
-        info!(
-            "Cert recv header {:?} round {:?}",
-            certificate.header_id, certificate.round
-        );
+        // info!(
+        //     "Cert recv header {:?} round {:?}",
+        //     certificate.header_id, certificate.round
+        // );
 
         // Ensure we have all the ancestors of this certificate yet. If we don't, the synchronizer will gather
         // them and trigger re-processing of this certificate.

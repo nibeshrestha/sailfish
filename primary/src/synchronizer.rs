@@ -9,7 +9,6 @@ use crate::{HeaderInfo, Round};
 use config::Committee;
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
-use log::info;
 use std::collections::HashSet;
 use store::Store;
 use tokio::sync::mpsc::Sender;
